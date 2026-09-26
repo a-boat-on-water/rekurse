@@ -14,6 +14,9 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parents[2]
 TRAP_ROOT = ROOT / "trap_repos"
 OUT_DIR = Path(os.environ.get("REKURSE_OUT", ROOT / "out"))
+# Agent workspaces live OUTSIDE the repo: Pi loads AGENTS.md from every ancestor directory, and the lesson is
+# injected through the workspace's own AGENTS.md, so our repo's AGENTS.md must not be an ancestor.
+WORK_ROOT = Path(os.environ.get("REKURSE_WORK", Path.home() / ".rekurse" / "work"))
 
 PI_BIN: list[str] = shlex.split(os.environ.get("REKURSE_PI_BIN", "pi"))
 # Agent under test: cheap and trap-prone. Pi model ids are "provider/id"; it needs the matching API key in the env.
@@ -23,8 +26,8 @@ _HAS_ANTHROPIC = bool(os.environ.get("ANTHROPIC_API_KEY"))
 REFLECTOR_MODEL = os.environ.get("REKURSE_REFLECTOR_MODEL", "claude-sonnet-5" if _HAS_ANTHROPIC else "gpt-4.1")
 SEEDS = int(os.environ.get("REKURSE_SEEDS", "3"))
 DECISION_SEEDS = int(os.environ.get("REKURSE_DECISION_SEEDS", "5"))
-CONCURRENCY = int(os.environ.get("REKURSE_CONCURRENCY", "8"))
-REPLAY_MAX_TURNS = int(os.environ.get("REPLAY_MAX_TURNS", "4"))
+CONCURRENCY = int(os.environ.get("REKURSE_CONCURRENCY", "4"))
+REPLAY_MAX_TURNS = int(os.environ.get("REPLAY_MAX_TURNS", "3"))
 REPLAY_TIMEOUT_S = int(os.environ.get("REPLAY_TIMEOUT_S", "300"))
 TURN_TIMEOUT_S = int(os.environ.get("TURN_TIMEOUT_S", "240"))
 # Tools the agent under test may use. No bash: the agent cannot run the tests or grep, so it must reason from
@@ -34,7 +37,12 @@ PI_TOOLS = os.environ.get("REKURSE_PI_TOOLS", "read,edit,write")
 DEDUPE_THRESHOLD = float(os.environ.get("DEDUPE_THRESHOLD", "0.90"))
 MONGODB_DB = os.environ.get("MONGODB_DB", "rekurse")
 
-PLACEBO = ""
+PLACEBO = "Follow the project's existing conventions and keep changes minimal."
+
+
+def agents_md(lesson: str | None) -> str:
+    """The AGENTS.md written into a replay workspace: the lesson under test, or a placebo of similar length."""
+    return f"# Project notes\n\n## Proven lessons\n- {lesson or PLACEBO}\n"
 
 
 @dataclass

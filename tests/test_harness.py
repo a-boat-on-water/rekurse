@@ -60,10 +60,12 @@ def test_fake_pi_turn_applies_symptom_then_solution(tmp_path, monkeypatch):
     trap = load_trap("primary")
     ws = materialize_trap(trap, tmp_path / "ws")
     sess, sd = tmp_path / "s.jsonl", tmp_path / "sd"
-    r = run_turn(ws, sess, sd, trap.opening, "placebo", model="fake")
+    (ws / "AGENTS.md").write_text("# notes\n- placebo\n")
+    r = run_turn(ws, sess, sd, trap.opening, model="fake")
     assert r.ok and r.stop_reason == "stop" and r.tokens == 150
     assert evaluate(ws, trap).passed is False
-    r2 = run_turn(ws, sess, sd, trap.followups[0], "Always " + trap.trigger_phrase + ".", model="fake")
+    (ws / "AGENTS.md").write_text("# notes\n- Always " + trap.trigger_phrase + ".\n")
+    r2 = run_turn(ws, sess, sd, trap.followups[0], model="fake")
     assert r2.ok
     assert evaluate(ws, trap).passed is True
     entries = _entries(sess)
@@ -76,5 +78,14 @@ def test_fake_pi_error_mode(tmp_path, monkeypatch):
     monkeypatch.setenv("REKURSE_FAKE_MODE", "error")
     trap = load_trap("primary")
     ws = materialize_trap(trap, tmp_path / "ws")
-    r = run_turn(ws, tmp_path / "s.jsonl", tmp_path / "sd", "hi", "", model="fake")
+    r = run_turn(ws, tmp_path / "s.jsonl", tmp_path / "sd", "hi", model="fake")
     assert r.ok is False and r.stop_reason == "error"
+
+
+def test_ancestor_agents_md_is_refused(tmp_path):
+    from rekurse.harness import assert_no_ancestor_context_files
+    (tmp_path / "AGENTS.md").write_text("leak")
+    ws = tmp_path / "a" / "ws"; ws.mkdir(parents=True)
+    import pytest
+    with pytest.raises(RuntimeError):
+        assert_no_ancestor_context_files(ws)

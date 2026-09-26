@@ -132,16 +132,24 @@ def fork_before(session_file: Path, k: int, dst: Path, old_cwd: str, new_cwd: st
 
 # ---------------------------------------------------------------- Pi driver
 
-def pi_command(session_file: Path, session_dir: Path, message: str, model: str, system_append: str) -> list[str]:
+def assert_no_ancestor_context_files(ws: Path) -> None:
+    """Pi loads AGENTS.md/CLAUDE.md from every ancestor of cwd; only the workspace's own file may exist."""
+    for parent in ws.resolve().parents:
+        for name in ("AGENTS.md", "CLAUDE.md"):
+            if (parent / name).exists():
+                raise RuntimeError(f"{parent / name} would leak into the agent under test; set REKURSE_WORK outside the repo")
+
+
+def pi_command(session_file: Path, session_dir: Path, message: str, model: str, system_append: str = "") -> list[str]:
+    """`system_append` is accepted for compatibility but unused: Pi ignores --append-system-prompt in -p mode,
+    so lessons are injected through the workspace AGENTS.md instead (see models.agents_md)."""
     cmd = [*PI_BIN, "-p", "--mode", "json", "--session", str(session_file), "--session-dir", str(session_dir),
            "--model", model, "--thinking", "off", "--tools", PI_TOOLS,
-           "--approve", "--no-extensions", "--no-skills", "--no-context-files"]
+           "--approve", "--no-extensions", "--no-skills"]
     # Pi prefers its own OAuth login over env vars; pass the API key explicitly so the run bills the key.
     key = {"anthropic": os.environ.get("ANTHROPIC_API_KEY"), "openai": os.environ.get("OPENAI_API_KEY")}.get(model.split("/")[0])
     if key:
         cmd += ["--api-key", key]
-    if system_append:
-        cmd += ["--append-system-prompt", system_append]
     return cmd + ["--", message]
 
 
@@ -186,13 +194,14 @@ def _reader(stream, sink: list[str]):
 
 
 def run_turn(ws: Path, session_file: Path, session_dir: Path, message: str,
-             system_append: str, model: str = AGENT_MODEL, timeout_s: int = TURN_TIMEOUT_S) -> TurnResult:
+             system_append: str = "", model: str = AGENT_MODEL, timeout_s: int = TURN_TIMEOUT_S) -> TurnResult:
     """One non-interactive Pi turn in ws.
 
     Waits on the *process*, not the pipes: Pi spawns detached bash children that can keep stdout open
     after Pi exits. Readers run in daemon threads. On timeout: SIGTERM, then SIGKILL the process group.
     """
     import threading
+    assert_no_ancestor_context_files(ws)
     session_dir.mkdir(parents=True, exist_ok=True)
     cmd = pi_command(session_file, session_dir, message, model, system_append)
     env = {k: v for k, v in os.environ.items() if k not in ("DATE_TZ", "CURRENCY")}

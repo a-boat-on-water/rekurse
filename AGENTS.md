@@ -29,11 +29,13 @@ Yvonne (full-stack, demo UI) · Harry (agents, LLM, memory tooling) · Sabrina (
 ## Pi invocation (verified 0.87.1)
 ```
 pi -p --mode json --session <file.jsonl> --session-dir <dir> --model anthropic/<id> \
-   --approve --no-extensions --no-skills --no-context-files \
-   --append-system-prompt "<lesson or placebo>" -- "<user message>"
+   --thinking off --tools read,edit,write --approve --no-extensions --no-skills --api-key $KEY -- "<user message>"
 ```
 - `--mode json` exits 0 even on API errors. Success = last assistant `message_end.stopReason` in {stop, toolUse}; `stopReason: error` carries `errorMessage`.
 - Session file v3: header `{type: session, version: 3, id, cwd}` then entries `{type, id, parentId, ...}`; user turns are `type: message` with `message.role: user`. Fork = truncate copy before user entry k, new header id, rewrite `cwd` and all workspace paths.
-- Always pass `--model`; global default is Opus. `--no-context-files` stops our own AGENTS.md leaking into the agent under test.
+- Always pass `--model`; global default is Opus.
+- **Lesson injection = the workspace's own `AGENTS.md`** (Pi loads it on every turn, new or continued session). `--append-system-prompt` is silently ignored in `-p` mode (verified), so never rely on it.
+- Workspaces live in `~/.rekurse/work` (`REKURSE_WORK`), outside this repo, because Pi also loads AGENTS.md from every ancestor directory. `harness.assert_no_ancestor_context_files` enforces this.
+- The agent under test has no bash (`--tools read,edit,write`): with a shell it solves the trap in one turn.
 - Auth: default agent model is `openai/gpt-4.1-mini`, so `OPENAI_API_KEY` must be in `.env`. Override with `REKURSE_AGENT_MODEL=anthropic/claude-haiku-4-5-20251001` (needs `ANTHROPIC_API_KEY`; the Pi OAuth login has no extra usage).
 - Reflector and embeddings follow the keys present: Anthropic + Voyage if set, otherwise OpenAI for both (`text-embedding-3-small`, 1536 dims).

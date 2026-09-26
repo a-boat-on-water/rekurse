@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import harness, pipeline, report
-from .models import (CONCURRENCY, DECISION_SEEDS, OUT_DIR, ROOT, SEEDS, ReplaySpec, RunResult, load_trap)
+from .models import (CONCURRENCY, DECISION_SEEDS, OUT_DIR, ROOT, SEEDS, WORK_ROOT, ReplaySpec, RunResult, load_trap)
 from .store import MemoryStore
 
 _now = lambda: datetime.now(timezone.utc).isoformat()
@@ -72,17 +72,12 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
                              final_test_output=done.get("final_test_output", ""))
         return pipeline.replay_one(spec, load_trap(spec.trap), store, work_root, session, cps)
 
-    log(f"== binary search: baseline x{seeds} at checkpoints {pre_hint}")
-    def probe(k):
-        runs = pipeline.run_many(
-            [ReplaySpec(run_group, trap.name, session["_id"], k, None, None, s, "sweep") for s in range(1, seeds + 1)],
-            replay, concurrency, log)
-        rate = pipeline.rescue_rate(runs)
-        if rate[1] != seeds:
-            raise RuntimeError(f"baseline probe at checkpoint {k} has only {rate[1]}/{seeds} counted runs")
-        return rate
-    # Search only sampled checkpoints; storing these exact probes keeps the report honest about coverage.
-    wt, rates = pipeline.bisect_wrong_turn(pre_hint, probe)
+    log(f"== bisect: baseline at checkpoints {pre_hint} (up to {seeds} seeds per probe, early stopping)")
+    wt, rates = pipeline.bisect_wrong_turn(
+        pre_hint,
+        lambda k: pipeline.probe_cell(
+            lambda s: ReplaySpec(run_group, trap.name, session["_id"], k, None, None, s, "sweep"), replay, seeds, concurrency, log),
+        log)
     notes = []
     if wt is None:
         wt = pre_hint[-1]
@@ -105,10 +100,12 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
     lesson_rates, best, last_rate = {}, None, None
     decision_l, decision_b = (0, 0), (0, 0)
     if lessons:
-        log(f"== lessons x{seeds} at wrong turn {wt}")
-        lr = pipeline.run_many(
-            [ReplaySpec(run_group, trap.name, session["_id"], wt, L["_id"], L["text"], s, "lesson") for L in lessons for s in range(1, seeds + 1)],
-            replay, concurrency, log)
+        log(f"== lessons at wrong turn {wt} (up to {seeds} seeds each, early stopping)")
+        lr = []
+        for L in lessons:
+            lr += pipeline.probe_cell(
+                lambda s, L=L: ReplaySpec(run_group, trap.name, session["_id"], wt, L["_id"], L["text"], s, "lesson"),
+                replay, seeds, concurrency, log)
         for L in lessons:
             mine = [r for r in lr if r.spec.lesson_id == L["_id"]]
             lesson_rates[L["_id"]] = pipeline.rescue_rate(mine)
@@ -121,13 +118,14 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
         if last_k == wt:
             last_rate = lesson_rates[best["_id"]]
         else:
-            log(f"== best lesson at last pre-hint checkpoint {last_k} x{seeds}")
-            last_runs = pipeline.run_many(
-                [ReplaySpec(run_group, trap.name, session["_id"], last_k, best["_id"], best["text"], s, "last_turn")
-                 for s in range(1, seeds + 1)], replay, concurrency, log)
+            log(f"== best lesson at last pre-hint checkpoint {last_k} (early stopping)")
+            last_runs = pipeline.probe_cell(
+                lambda s: ReplaySpec(run_group, trap.name, session["_id"], last_k, best["_id"], best["text"], s, "last_turn"),
+                replay, seeds, concurrency, log)
             last_rate = pipeline.rescue_rate(last_runs)
         log(f"== decision: best lesson {best['_id']} top-up to {decision_seeds} + fresh baseline x{decision_seeds} at {wt}")
-        extra = list(range(seeds + 1, decision_seeds + 1))
+        done_seeds = {r.spec.seed for r in lr if r.spec.lesson_id == best["_id"]}
+        extra = [s for s in range(1, decision_seeds + 1) if s not in done_seeds]
         dec = pipeline.run_many(
             [ReplaySpec(run_group, trap.name, session["_id"], wt, best["_id"], best["text"], s, "decision") for s in extra] +
             [ReplaySpec(run_group, trap.name, session["_id"], wt, None, None, 100 + s, "decision") for s in range(1, decision_seeds + 1)],
@@ -231,7 +229,7 @@ def main(argv=None):
         cps = store.get_checkpoints(a.session) if a.session else None
         spec = ReplaySpec("spike", trap.name, a.session, a.k, None if a.lesson == "none" else "manual",
                           None if a.lesson == "none" else a.lesson, a.seed, "spike")
-        res = pipeline.replay_one(spec, trap, store, out / "work", session, cps, keep=True)
+        res = pipeline.replay_one(spec, trap, store, WORK_ROOT, session, cps, keep=True)
         print(res.to_doc())
         return
 
@@ -239,13 +237,13 @@ def main(argv=None):
         _fake_mode()
         store = MemoryStore()
         rg = a.run_group or (store.get_session(a.session)["run_group"] if a.session else f"fake-{uuid.uuid4().hex[:6]}")
-        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", stub_reflector, fake_embed, session_id=a.session)
+        doc = run_pipeline(store, a.trap, a.heldout, rg, WORK_ROOT, stub_reflector, fake_embed, session_id=a.session)
     elif a.live:
         from .store import MongoStore
         print(f"agent model: {harness.AGENT_MODEL}; reflector: {pipeline.REFLECTOR_MODEL}; embeddings chosen at reflect time")
         store = MongoStore()
         rg = a.run_group or (store.get_session(a.session)["run_group"] if a.session else f"live-{datetime.now().strftime('%m%d-%H%M')}")
-        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", pipeline.propose_lessons_llm, None, session_id=a.session)
+        doc = run_pipeline(store, a.trap, a.heldout, rg, WORK_ROOT, pipeline.propose_lessons_llm, None, session_id=a.session)
     else:
         store = _mongo_store()
         doc = store.get_report(a.run_group) if a.run_group else store.latest_report()

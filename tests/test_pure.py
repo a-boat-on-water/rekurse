@@ -60,3 +60,19 @@ def test_uri_host_parsing():
     from rekurse.store import _uri_host
     assert _uri_host("mongodb+srv://user:p%40ss@Cluster0.abc12.mongodb.net/?retryWrites=true") == "cluster0.abc12.mongodb.net"
     assert _uri_host("mongodb://localhost:27017/db") == "localhost"
+
+
+def test_bisect_wrong_turn_probes_log_n_cells():
+    from rekurse.pipeline import bisect_wrong_turn
+    from rekurse.models import ReplaySpec, RunResult
+    def mk(k, ok):
+        spec = ReplaySpec("g", "t", "s", k, None, None, 1, "sweep")
+        return [RunResult(spec, ok, 1, 1.0, None, "stop", False, ""), RunResult(spec, ok, 1, 1.0, None, "stop", False, "")]
+    probed = []
+    # recoverable at 0..3, not at 4..7
+    wt, rates = bisect_wrong_turn(list(range(8)), lambda k: probed.append(k) or mk(k, k < 4), log=lambda *_: None)
+    assert wt == 4 and len(probed) <= 4 and set(rates) == set(probed)
+    wt, _ = bisect_wrong_turn([0, 1, 2], lambda k: mk(k, True), log=lambda *_: None)
+    assert wt is None
+    wt, _ = bisect_wrong_turn([0, 1, 2], lambda k: mk(k, False), log=lambda *_: None)
+    assert wt == 0

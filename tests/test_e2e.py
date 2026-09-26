@@ -19,9 +19,10 @@ def test_full_pipeline_offline(tmp_path, monkeypatch):
 
     session = store.get_session(doc["session_id"])
     assert session["accepted"] and session["hint_turn"] == 3 and session["solved_turn"] == 3
-    # fake recovers with <2 prior user turns, so the wrong turn is checkpoint 2
-    assert doc["probed_ks"] == [0, 1, 2] and doc["wrong_turn_k"] == 2
-    assert doc["sweep_rates"] == {"0": [3, 3], "1": [3, 3], "2": [0, 3]}
+    # fake recovers with <2 prior user turns, so the wrong turn is checkpoint 2.
+    # bisect probes k=1 (rescued 2/2, early stop) then k=2 (0/2); k=0 is never run and stays gray.
+    assert doc["probed_ks"] == [1, 2] and doc["wrong_turn_k"] == 2
+    assert doc["sweep_rates"] == {"1": [2, 2], "2": [0, 2]}
 
     lessons = {L["text"]: L for L in store.lessons("e2e")}
     bad = next(L for t, L in lessons.items() if "format_date" in t)
@@ -40,7 +41,7 @@ def test_full_pipeline_offline(tmp_path, monkeypatch):
     out = tmp_path / "out"
     report.write_outputs(store, doc, out)
     html = (out / "report.html").read_text()
-    assert "k=2" in html and "0/3" in html and "5/5" in html and "ADOPTED" in html
+    assert "k=2" in html and "0/2" in html and "5/5" in html and "ADOPTED" in html
     assert best["text"] in (out / "AGENTS.md").read_text()
     pm = (out / "postmortem.md").read_text()
     assert "checkpoint 2" in pm and "Discarded lesson" in pm

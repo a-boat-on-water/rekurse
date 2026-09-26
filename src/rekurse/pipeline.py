@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from . import harness
-from .models import (AGENT_MODEL, CONCURRENCY, DEDUPE_THRESHOLD, PLACEBO, REFLECTOR_MODEL, REPLAY_MAX_TURNS, REPLAY_TIMEOUT_S, TURN_TIMEOUT_S,
-                     Checkpoint, Decision, ReplaySpec, RunResult, Trap)
+from .models import (AGENT_MODEL, CONCURRENCY, DEDUPE_THRESHOLD, REFLECTOR_MODEL, REPLAY_MAX_TURNS,
+                     REPLAY_TIMEOUT_S, TURN_TIMEOUT_S, Checkpoint, Decision, ReplaySpec, RunResult, Trap, agents_md)
 
 _now = lambda: datetime.now(timezone.utc).isoformat()
 
@@ -43,7 +43,7 @@ def record(trap: Trap, store, run_group: str, work_root: Path, log=print) -> dic
             msg = trap.followups[(k - 1) % len(trap.followups)]
         cp = Checkpoint(session_id=sid, k=k, git_sha=sha, user_msg=msg, is_hint=(k == hint_turn))
         log(f"  record turn {k}: {msg!r}")
-        r = harness.run_turn(repo, session_file, sessions / "sd", msg, system_append="")
+        r = harness.run_turn(repo, session_file, sessions / "sd", msg)
         if not r.ok:
             log(f"  turn {k} did not complete: {r.stop_reason}{' (timed out)' if r.timed_out else ''} {r.error or ''}")
         cp.agent_msg_excerpt = (r.assistant_text or "")[:600]
@@ -83,7 +83,9 @@ def replay_one(spec: ReplaySpec, trap: Trap, store, work_root: Path, session_doc
         harness.fork_before(Path(session_doc["session_file"]), spec.checkpoint_k, session_file,
                             old_cwd=session_doc["repo"], new_cwd=str(ws))
         first_msg = cp["user_msg"]
-    system_append = f"Note from past experience: {spec.lesson_text}" if spec.lesson_text else PLACEBO
+    # Pi ignores --append-system-prompt in print mode, so inject the tested rule through the same AGENTS.md
+    # mechanism the adopted rule will use. The placebo keeps both arms on the same injection path.
+    (ws / "AGENTS.md").write_text(agents_md(spec.lesson_text))
     if session_doc is None:
         messages = [first_msg] + [f for f in trap.followups if f != trap.hint]
     else:
@@ -98,8 +100,7 @@ def replay_one(spec: ReplaySpec, trap: Trap, store, work_root: Path, session_doc
         if remaining <= 0:
             timed_out, stop, out = True, "timeout", "Replay exceeded its wall-clock deadline"
             break
-        r = harness.run_turn(ws, session_file, sd, msg, system_append=system_append,
-                             timeout_s=min(TURN_TIMEOUT_S, remaining))
+        r = harness.run_turn(ws, session_file, sd, msg, timeout_s=min(TURN_TIMEOUT_S, remaining))
         turns += 1
         tokens += r.tokens or 0
         stop, timed_out = r.stop_reason, r.timed_out
@@ -141,6 +142,48 @@ def run_many(specs: Iterable[ReplaySpec], fn: Callable[[ReplaySpec], RunResult],
     return results
 
 
+# ------------------------------------------------------------------ adaptive probing (cheap)
+
+def probe_cell(make_spec, run, seeds: int, concurrency: int, log=print) -> list[RunResult]:
+    """Run one (checkpoint, lesson) cell with early stopping.
+
+    First two seeds run in parallel. Two counted successes or failures decide the 2/3 threshold; run the
+    remaining seed(s) when the first pair splits or either run is uncounted.
+    """
+    first = run_many([make_spec(s) for s in range(1, min(2, seeds) + 1)], run, concurrency, log)
+    results = list(first)
+    succ, n = rescue_rate(results)
+    if seeds > 2 and (n < 2 or 0 < succ < n):
+        results += run_many([make_spec(s) for s in range(3, seeds + 1)], run, concurrency, log)
+    return results
+
+
+def bisect_wrong_turn(ks: list[int], probe, log=print) -> tuple[int | None, dict[int, tuple[int, int]]]:
+    """Binary search for the first checkpoint the baseline cannot recover from.
+
+    `probe(k)` runs the baseline cell at k and returns its RunResults. Assumes rescue is monotone
+    (recoverable early, not late); every probed cell is stored so the report can show exactly what was tested.
+    Returns (wrong_turn or None if the baseline recovered everywhere probed, {k: (successes, counted)}).
+    """
+    rates: dict[int, tuple[int, int]] = {}
+    lo, hi = 0, len(ks) - 1
+    first_fail = None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        k = ks[mid]
+        s, n = rescue_rate(probe(k))
+        if n < 2 or 1 / 3 < s / n < 2 / 3:
+            raise RuntimeError(f"inconclusive baseline probe at checkpoint {k}: {s}/{n} counted")
+        rates[k] = (s, n)
+        log(f"  probe k={k}: baseline {s}/{n}")
+        if n and s / n <= 1 / 3:
+            first_fail = k
+            hi = mid - 1
+        else:
+            lo = mid + 1
+    return first_fail, rates
+
+
 # ------------------------------------------------------------------ statistics (pure)
 
 def rescue_rate(runs: Iterable) -> tuple[int, int]:
@@ -168,33 +211,6 @@ def find_wrong_turn(rates: dict[int, tuple[int, int]], max_rate: float = 1 / 3) 
         if n and s / n <= max_rate:
             return k
     return None
-
-
-def bisect_wrong_turn(checkpoints: list[int], probe: Callable[[int], tuple[int, int]]) -> tuple[int | None, dict[int, tuple[int, int]]]:
-    """Probe the monotone rescue boundary with binary search, retaining every probed cell."""
-    ks = sorted(checkpoints)
-    rates: dict[int, tuple[int, int]] = {}
-    if not ks:
-        return None, rates
-    def rescued(k):
-        rates[k] = probe(k)
-        s, n = rates[k]
-        if n == 0 or 1 / 3 < s / n < 2 / 3:
-            raise RuntimeError(f"inconclusive baseline probe at checkpoint {k}: {s}/{n}")
-        return s / n >= 2 / 3
-    # Endpoint checks establish the monotone true/false bracket before narrowing the boundary.
-    if not rescued(ks[0]):
-        return ks[0], rates
-    if rescued(ks[-1]):
-        return None, rates
-    lo, hi = 0, len(ks) - 1
-    while hi - lo > 1:
-        mid = (lo + hi) // 2
-        if rescued(ks[mid]):
-            lo = mid
-        else:
-            hi = mid
-    return ks[hi], rates
 
 
 def fisher_p(a_succ: int, a_n: int, b_succ: int, b_n: int) -> float:
@@ -346,7 +362,7 @@ def propose_lessons_llm(transcript: str, diff: str, model: str = REFLECTOR_MODEL
         import anthropic
         msg = anthropic.Anthropic().messages.create(model=model, max_tokens=400,
                                                     messages=[{"role": "user", "content": prompt}])
-        text = msg.content[0].text
+        text = "\n".join(b.text for b in msg.content if getattr(b, "type", "") == "text")  # skip thinking blocks
     else:
         from openai import OpenAI
         resp = OpenAI().chat.completions.create(model=model, max_completion_tokens=400,
@@ -373,8 +389,13 @@ def reflect(candidates: list[str], trap: Trap, store, run_group: str, session_id
             store.save_lesson({**base, "status": "rejected", "reason": f"not_general: {reason}", "top1_similarity": None})
             log(f"  lesson rejected ({reason}): {text}")
             continue
+        # Atlas indexes new docs with a lag of seconds, so also compare against this batch's survivors locally.
         top = store.similar_lessons(emb, k=1)
         top = top[0] if top else None
+        for prev in survivors:
+            c = cosine(emb, prev["embedding"])
+            if top is None or c > top["score"]:
+                top = dict(prev, score=c)
         top_score = top["score"] if top else None
         if top and top_score >= threshold:
             store.update_lesson(top["_id"], {"seen_count": top.get("seen_count", 1) + 1,
