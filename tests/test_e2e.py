@@ -27,7 +27,7 @@ def test_full_pipeline_offline(tmp_path, monkeypatch):
     bad = next(L for t, L in lessons.items() if "format_date" in t)
     assert bad["status"] == "rejected" and "format_date" in bad["reason"]
     merged = [L for L in lessons.values() if L["status"] == "merged"]
-    assert len(merged) == 1 and merged[0]["top1_similarity"] >= 0.9
+    assert len(merged) == 1 and merged[0]["top1_similarity"] >= 0.96
     best = store.get_lesson(doc["best_lesson_id"])
     assert best["status"] == "adopted" and doc["decision"] == "adopted"
     assert doc["decision_lesson"] == [5, 5] and doc["decision_baseline"] == [0, 5]

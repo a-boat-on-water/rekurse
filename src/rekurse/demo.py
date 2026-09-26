@@ -36,7 +36,7 @@ def stub_reflector(transcript: str, diff: str) -> list[str]:
     return [
         "When a test fails on a computed value, trace where the value comes from before patching the function that produces it.",
         "Fix format_date so it respects the configured timezone.",
-        "Before patching the function, trace where the value comes from when a test fails on a computed value.",
+        "Before patching the function that produces it, trace where the value comes from when a test fails on a computed value.",
     ]
 
 
