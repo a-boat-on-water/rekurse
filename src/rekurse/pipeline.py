@@ -125,6 +125,46 @@ def run_many(specs: Iterable[ReplaySpec], fn: Callable[[ReplaySpec], RunResult],
     return results
 
 
+# ------------------------------------------------------------------ adaptive probing (cheap)
+
+def probe_cell(make_spec, run, seeds: int, concurrency: int, log=print) -> list[RunResult]:
+    """Run one (checkpoint, lesson) cell with early stopping.
+
+    First two seeds run in parallel. 0/2 or 2/2 already decides "rescued" (>= 2/3) vs "not rescued" (<= 1/3),
+    so the remaining seeds only run on a 1/1 split. Cuts about a third of the runs at the same decision quality.
+    """
+    first = run_many([make_spec(s) for s in range(1, min(2, seeds) + 1)], run, concurrency, log)
+    results = list(first)
+    succ, n = rescue_rate(results)
+    if seeds > 2 and 0 < succ < n:
+        results += run_many([make_spec(s) for s in range(3, seeds + 1)], run, concurrency, log)
+    return results
+
+
+def bisect_wrong_turn(ks: list[int], probe, log=print) -> tuple[int | None, dict[int, tuple[int, int]]]:
+    """Binary search for the first checkpoint the baseline cannot recover from.
+
+    `probe(k)` runs the baseline cell at k and returns its RunResults. Assumes rescue is monotone
+    (recoverable early, not late); every probed cell is stored so the report can show exactly what was tested.
+    Returns (wrong_turn or None if the baseline recovered everywhere probed, {k: (successes, counted)}).
+    """
+    rates: dict[int, tuple[int, int]] = {}
+    lo, hi = 0, len(ks) - 1
+    first_fail = None
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        k = ks[mid]
+        s, n = rescue_rate(probe(k))
+        rates[k] = (s, n)
+        log(f"  probe k={k}: baseline {s}/{n}")
+        if n and s / n <= 1 / 3:
+            first_fail = k
+            hi = mid - 1
+        else:
+            lo = mid + 1
+    return first_fail, rates
+
+
 # ------------------------------------------------------------------ statistics (pure)
 
 def rescue_rate(runs: Iterable) -> tuple[int, int]:

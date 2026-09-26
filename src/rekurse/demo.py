@@ -68,17 +68,17 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
                              final_test_output=done.get("final_test_output", ""))
         return pipeline.replay_one(spec, load_trap(spec.trap), store, work_root, session, cps)
 
-    log(f"== sweep: baseline x{seeds} at checkpoints {pre_hint}")
-    sweep = pipeline.run_many(
-        [ReplaySpec(run_group, trap.name, session["_id"], k, None, None, s, "sweep") for k in pre_hint for s in range(1, seeds + 1)],
-        replay, concurrency, log)
-    rates = {k: pipeline.rescue_rate(r for r in sweep if r.spec.checkpoint_k == k) for k in pre_hint}
-    wt = pipeline.find_wrong_turn(rates)
+    log(f"== bisect: baseline at checkpoints {pre_hint} (up to {seeds} seeds per probe, early stopping)")
+    wt, rates = pipeline.bisect_wrong_turn(
+        pre_hint,
+        lambda k: pipeline.probe_cell(
+            lambda s: ReplaySpec(run_group, trap.name, session["_id"], k, None, None, s, "sweep"), replay, seeds, concurrency, log),
+        log)
     notes = []
     if wt is None:
         wt = pre_hint[-1]
         notes.append("baseline recovered from every probed checkpoint; testing lessons at the last pre-hint turn")
-    log(f"  sweep rates {rates}; wrong turn = {wt}")
+    log(f"  probed rates {rates}; wrong turn = {wt}")
 
     log("== reflect")
     if embed is None:
@@ -96,10 +96,12 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
     lesson_rates, best = {}, None
     decision_l, decision_b = (0, 0), (0, 0)
     if lessons:
-        log(f"== lessons x{seeds} at wrong turn {wt}")
-        lr = pipeline.run_many(
-            [ReplaySpec(run_group, trap.name, session["_id"], wt, L["_id"], L["text"], s, "lesson") for L in lessons for s in range(1, seeds + 1)],
-            replay, concurrency, log)
+        log(f"== lessons at wrong turn {wt} (up to {seeds} seeds each, early stopping)")
+        lr = []
+        for L in lessons:
+            lr += pipeline.probe_cell(
+                lambda s, L=L: ReplaySpec(run_group, trap.name, session["_id"], wt, L["_id"], L["text"], s, "lesson"),
+                replay, seeds, concurrency, log)
         for L in lessons:
             mine = [r for r in lr if r.spec.lesson_id == L["_id"]]
             lesson_rates[L["_id"]] = pipeline.rescue_rate(mine)
@@ -109,7 +111,8 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
             return (s / n if n else 0, -turns)
         best = max(lessons, key=key)
         log(f"== decision: best lesson {best['_id']} top-up to {decision_seeds} + fresh baseline x{decision_seeds} at {wt}")
-        extra = list(range(seeds + 1, decision_seeds + 1))
+        done_seeds = {r.spec.seed for r in lr if r.spec.lesson_id == best["_id"]}
+        extra = [s for s in range(1, decision_seeds + 1) if s not in done_seeds]
         dec = pipeline.run_many(
             [ReplaySpec(run_group, trap.name, session["_id"], wt, best["_id"], best["text"], s, "decision") for s in extra] +
             [ReplaySpec(run_group, trap.name, session["_id"], wt, None, None, 100 + s, "decision") for s in range(1, decision_seeds + 1)],
@@ -142,7 +145,7 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
                 "computed_from_run_group": run_group}})
     doc = {
         "_id": run_group, "run_group": run_group, "session_id": session["_id"], "trap": trap.name, "heldout": heldout_name,
-        "wrong_turn_k": wt, "probed_ks": pre_hint, "sweep_rates": {str(k): list(v) for k, v in rates.items()},
+        "wrong_turn_k": wt, "probed_ks": sorted(rates), "sweep_rates": {str(k): list(v) for k, v in rates.items()},
         "lesson_rates": {k: list(v) for k, v in lesson_rates.items()}, "best_lesson_id": best["_id"] if best else None,
         "decision_lesson": list(decision_l), "decision_baseline": list(decision_b),
         "heldout_with": list(hw) if hw else None, "heldout_without": list(hwo) if hwo else None,

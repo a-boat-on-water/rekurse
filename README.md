@@ -26,15 +26,16 @@ Outputs: `out/report.html` (rescue grid), `out/postmortem.md`, `out/AGENTS.md` (
   `evaluate()` restores the hidden tests before every check.
 - **Harness** (`tests/test_harness.py`): session forking rewrites the working directory and truncates before the
   right user turn (against a real Pi session file); Pi's JSON output is judged by stop reason, not exit code.
-- **Pure logic** (`tests/test_pure.py`): wrong-turn search, rescue rate excluding timeouts, one-sided Fisher exact
-  test, adopt/reject rules, and the generality filter that rejects lessons naming trap identifiers.
+- **Pure logic** (`tests/test_pure.py`): bisect over checkpoints, early-stopping cells, rescue rate excluding timeouts,
+  one-sided Fisher exact test, adopt/reject rules, and the generality filter that rejects lessons naming trap identifiers.
 - **End to end** (`tests/test_e2e.py`): the full record → sweep → reflect → dedupe → lessons → held-out → decide →
   report loop on a fake Pi and in-memory store. Asserts the wrong turn is found, a lesson naming `format_date` is
   rejected, a near-duplicate is merged by cosine similarity, and the surviving lesson is adopted.
 
 Honesty rules baked into the numbers: the decision uses **fresh** baseline runs at the wrong turn (not the sweep
 runs that defined it), n=5 per decision cell, timed-out runs are excluded rather than counted as failures, the
-baseline gets a placebo prompt of similar length, and every probed cell is shown in the grid.
+baseline gets a placebo AGENTS.md line of similar length, and every probed cell is shown in the grid (unprobed cells
+are gray: the wrong turn is bisected, and a cell stops after 2 seeds when 0/2 or 2/2 already decides it).
 
 
 ## Setup (5 min)
