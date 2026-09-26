@@ -284,11 +284,18 @@ def fix_diff(session_doc: dict, checkpoints: list[dict]) -> str:
 
 
 def propose_lessons_llm(transcript: str, diff: str, model: str = REFLECTOR_MODEL) -> list[str]:
-    import anthropic
-    msg = anthropic.Anthropic().messages.create(
-        model=model, max_tokens=400,
-        messages=[{"role": "user", "content": REFLECT_PROMPT.format(transcript=transcript, diff=diff)}])
-    text = msg.content[0].text
+    import os
+    prompt = REFLECT_PROMPT.format(transcript=transcript, diff=diff)
+    if model.startswith("claude"):
+        import anthropic
+        msg = anthropic.Anthropic().messages.create(model=model, max_tokens=400,
+                                                    messages=[{"role": "user", "content": prompt}])
+        text = msg.content[0].text
+    else:
+        from openai import OpenAI
+        resp = OpenAI().chat.completions.create(model=model, max_completion_tokens=400,
+                                                messages=[{"role": "user", "content": prompt}])
+        text = resp.choices[0].message.content or ""
     lines = [re.sub(r"^[\s\-\*\d\.\)]+", "", l).strip() for l in text.splitlines()]
     return [l for l in lines if len(l) > 10][:3]
 

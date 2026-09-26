@@ -16,8 +16,11 @@ TRAP_ROOT = ROOT / "trap_repos"
 OUT_DIR = Path(os.environ.get("REKURSE_OUT", ROOT / "out"))
 
 PI_BIN: list[str] = shlex.split(os.environ.get("REKURSE_PI_BIN", "pi"))
-AGENT_MODEL = os.environ.get("REKURSE_AGENT_MODEL", "anthropic/claude-haiku-4-5-20251001")
-REFLECTOR_MODEL = os.environ.get("REKURSE_REFLECTOR_MODEL", "claude-sonnet-5")
+# Agent under test: cheap and trap-prone. Pi model ids are "provider/id"; it needs the matching API key in the env.
+AGENT_MODEL = os.environ.get("REKURSE_AGENT_MODEL", "openai/gpt-4.1-mini")
+# Reflector: Anthropic if a key is present, else OpenAI. Plain model id, used via the provider SDK directly.
+_HAS_ANTHROPIC = bool(os.environ.get("ANTHROPIC_API_KEY"))
+REFLECTOR_MODEL = os.environ.get("REKURSE_REFLECTOR_MODEL", "claude-sonnet-5" if _HAS_ANTHROPIC else "gpt-4.1")
 SEEDS = int(os.environ.get("REKURSE_SEEDS", "3"))
 DECISION_SEEDS = int(os.environ.get("REKURSE_DECISION_SEEDS", "5"))
 CONCURRENCY = int(os.environ.get("REKURSE_CONCURRENCY", "4"))

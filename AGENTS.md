@@ -35,4 +35,5 @@ pi -p --mode json --session <file.jsonl> --session-dir <dir> --model anthropic/<
 - `--mode json` exits 0 even on API errors. Success = last assistant `message_end.stopReason` in {stop, toolUse}; `stopReason: error` carries `errorMessage`.
 - Session file v3: header `{type: session, version: 3, id, cwd}` then entries `{type, id, parentId, ...}`; user turns are `type: message` with `message.role: user`. Fork = truncate copy before user entry k, new header id, rewrite `cwd` and all workspace paths.
 - Always pass `--model`; global default is Opus. `--no-context-files` stops our own AGENTS.md leaking into the agent under test.
-- Auth: Pi uses Anthropic OAuth by default; if `ANTHROPIC_API_KEY` is in the env Pi uses that instead.
+- Auth: default agent model is `openai/gpt-4.1-mini`, so `OPENAI_API_KEY` must be in `.env`. Override with `REKURSE_AGENT_MODEL=anthropic/claude-haiku-4-5-20251001` (needs `ANTHROPIC_API_KEY`; the Pi OAuth login has no extra usage).
+- Reflector and embeddings follow the keys present: Anthropic + Voyage if set, otherwise OpenAI for both (`text-embedding-3-small`, 1536 dims).
