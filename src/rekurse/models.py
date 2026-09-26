@@ -14,6 +14,9 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parents[2]
 TRAP_ROOT = ROOT / "trap_repos"
 OUT_DIR = Path(os.environ.get("REKURSE_OUT", ROOT / "out"))
+# Agent workspaces live OUTSIDE the repo: Pi loads AGENTS.md from every ancestor directory, and the lesson is
+# injected through the workspace's own AGENTS.md, so our repo's AGENTS.md must not be an ancestor.
+WORK_ROOT = Path(os.environ.get("REKURSE_WORK", Path.home() / ".rekurse" / "work"))
 
 PI_BIN: list[str] = shlex.split(os.environ.get("REKURSE_PI_BIN", "pi"))
 # Agent under test: cheap and trap-prone. Pi model ids are "provider/id"; it needs the matching API key in the env.
@@ -34,6 +37,11 @@ DEDUPE_THRESHOLD = float(os.environ.get("DEDUPE_THRESHOLD", "0.96"))
 MONGODB_DB = os.environ.get("MONGODB_DB", "rekurse")
 
 PLACEBO = "Follow the project's existing conventions and keep changes minimal."
+
+
+def agents_md(lesson: str | None) -> str:
+    """The AGENTS.md written into a replay workspace: the lesson under test, or a placebo of similar length."""
+    return f"# Project notes\n\n## Proven lessons\n- {lesson or PLACEBO}\n"
 
 
 @dataclass

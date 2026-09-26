@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import harness, pipeline, report
-from .models import (CONCURRENCY, DECISION_SEEDS, OUT_DIR, ROOT, SEEDS, ReplaySpec, RunResult, load_trap)
+from .models import (CONCURRENCY, DECISION_SEEDS, OUT_DIR, ROOT, SEEDS, WORK_ROOT, ReplaySpec, RunResult, load_trap)
 from .store import MemoryStore
 
 _now = lambda: datetime.now(timezone.utc).isoformat()
@@ -220,7 +220,7 @@ def main(argv=None):
         cps = store.get_checkpoints(a.session) if a.session else None
         spec = ReplaySpec("spike", trap.name, a.session, a.k, None if a.lesson == "none" else "manual",
                           None if a.lesson == "none" else a.lesson, a.seed, "spike")
-        res = pipeline.replay_one(spec, trap, store, out / "work", session, cps, keep=True)
+        res = pipeline.replay_one(spec, trap, store, WORK_ROOT, session, cps, keep=True)
         print(res.to_doc())
         return
 
@@ -228,13 +228,13 @@ def main(argv=None):
         _fake_mode()
         store = MemoryStore()
         rg = a.run_group or f"fake-{uuid.uuid4().hex[:6]}"
-        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", stub_reflector, fake_embed)
+        doc = run_pipeline(store, a.trap, a.heldout, rg, WORK_ROOT, stub_reflector, fake_embed)
     elif a.live:
         from .store import MongoStore
         print(f"agent model: {harness.AGENT_MODEL}; reflector: {pipeline.REFLECTOR_MODEL}; embeddings chosen at reflect time")
         store = MongoStore()
         rg = a.run_group or f"live-{datetime.now().strftime('%m%d-%H%M')}"
-        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", pipeline.propose_lessons_llm, None, session_id=a.session)
+        doc = run_pipeline(store, a.trap, a.heldout, rg, WORK_ROOT, pipeline.propose_lessons_llm, None, session_id=a.session)
     else:
         store = _mongo_store()
         doc = store.get_report(a.run_group) if a.run_group else store.latest_report()

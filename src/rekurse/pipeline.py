@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from . import harness
-from .models import (AGENT_MODEL, CONCURRENCY, DEDUPE_THRESHOLD, PLACEBO, REFLECTOR_MODEL, REPLAY_MAX_TURNS,
-                     Checkpoint, Decision, ReplaySpec, RunResult, Trap)
+from .models import (AGENT_MODEL, CONCURRENCY, DEDUPE_THRESHOLD, REFLECTOR_MODEL, REPLAY_MAX_TURNS,
+                     Checkpoint, Decision, ReplaySpec, RunResult, Trap, agents_md)
 
 _now = lambda: datetime.now(timezone.utc).isoformat()
 
@@ -43,7 +43,7 @@ def record(trap: Trap, store, run_group: str, work_root: Path, log=print) -> dic
             msg = trap.followups[(k - 1) % len(trap.followups)]
         cp = Checkpoint(session_id=sid, k=k, git_sha=sha, user_msg=msg, is_hint=(k == hint_turn))
         log(f"  record turn {k}: {msg!r}")
-        r = harness.run_turn(repo, session_file, sessions / "sd", msg, system_append="")
+        r = harness.run_turn(repo, session_file, sessions / "sd", msg)
         if not r.ok:
             log(f"  turn {k} did not complete: {r.stop_reason}{' (timed out)' if r.timed_out else ''} {r.error or ''}")
         cp.agent_msg_excerpt = (r.assistant_text or "")[:600]
@@ -83,12 +83,14 @@ def replay_one(spec: ReplaySpec, trap: Trap, store, work_root: Path, session_doc
         harness.fork_before(Path(session_doc["session_file"]), spec.checkpoint_k, session_file,
                             old_cwd=session_doc["repo"], new_cwd=str(ws))
         first_msg = cp["user_msg"]
-    system_append = f"Note from past experience: {spec.lesson_text}" if spec.lesson_text else PLACEBO
+    # Injection: the lesson (or a placebo for the baseline arm) is a line in the workspace's AGENTS.md, which Pi
+    # loads into its system prompt on every turn. Same mechanism the adopted lesson uses in real life.
+    (ws / "AGENTS.md").write_text(agents_md(spec.lesson_text))
     messages = [first_msg] + [f for f in trap.followups if f != trap.hint]
     t0 = time.time()
     success, turns, tokens, stop, timed_out, out = False, 0, 0, None, False, ""
     for msg in messages[:REPLAY_MAX_TURNS]:
-        r = harness.run_turn(ws, session_file, sd, msg, system_append=system_append)
+        r = harness.run_turn(ws, session_file, sd, msg)
         turns += 1
         tokens += r.tokens or 0
         stop, timed_out = r.stop_reason, r.timed_out

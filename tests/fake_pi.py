@@ -2,8 +2,8 @@
 """Stand-in for the `pi` binary. Same flags, same JSON events, scripted behaviour.
 
 Rules (checked in order):
-  1. system prompt append contains the trap's trigger phrase      -> apply solution/
-  2. a replay (non-empty append) with fewer than RECOVER_BEFORE prior user turns -> solution/
+  1. workspace AGENTS.md contains the trap's trigger phrase         -> apply solution/
+  2. a replay (AGENTS.md present) with fewer than RECOVER_BEFORE prior user turns -> solution/
   3. user message contains the trap's hint                          -> solution/
   4. otherwise                                                      -> symptom/
 REKURSE_FAKE_MODE=error emits an API-error turn; =cheat rewrites the tests instead.
@@ -57,7 +57,8 @@ def main():
     ws = Path.cwd()
     session = Path(opts["session"])
     trap_dir, trap = detect_trap(ws)
-    append = " ".join(opts["append"])
+    agents = (ws / "AGENTS.md").read_text() if (ws / "AGENTS.md").exists() else ""
+    append = agents  # lessons arrive through AGENTS.md, exactly like the real Pi
 
     entries = [json.loads(l) for l in session.read_text().splitlines() if l.strip()] if session.exists() else []
     if not entries:
