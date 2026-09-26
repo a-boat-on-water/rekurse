@@ -1,0 +1,20 @@
+[project]
+name = "agent-memory-hackathon"
+version = "0.1.0"
+description = "MongoDB Agentic Memory Hackathon (NYC, Sep 2026)"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=1.8.0",
+    "openai>=3.19.2",
+    "pymongo>=4.18.2",
+    "python-dotenv>=1.2.3",
+    "voyageai>=0.5.0",
+]
+
+[project.scripts]
+agent-memory-hackathon = "agent_memory_hackathon:main"
+smoke-test = "agent_memory_hackathon.smoke_test:cli"
+
+[build-system]
+requires = ["uv_build>=0.12.19,<0.13.0"]
+build-backend = "uv_build"
