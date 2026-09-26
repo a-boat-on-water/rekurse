@@ -55,6 +55,7 @@ class Trap:
     max_turns: int
     trigger_phrase: str
     path: Path
+    post_hint_followups: list[str] = field(default_factory=lambda: ["Still failing.", "Tests still red."])
 
     @property
     def pristine(self) -> Path:

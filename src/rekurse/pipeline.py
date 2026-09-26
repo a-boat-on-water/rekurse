@@ -39,6 +39,9 @@ def record(trap: Trap, store, run_group: str, work_root: Path, log=print) -> dic
             msg = trap.opening
         elif k == hint_turn:
             msg = trap.hint
+        elif k > hint_turn:
+            # After the hint the user stops misdirecting; neutral nags only, or the hint would be contradicted.
+            msg = trap.post_hint_followups[(k - hint_turn - 1) % len(trap.post_hint_followups)]
         else:
             msg = trap.followups[(k - 1) % len(trap.followups)]
         cp = Checkpoint(session_id=sid, k=k, git_sha=sha, user_msg=msg, is_hint=(k == hint_turn))

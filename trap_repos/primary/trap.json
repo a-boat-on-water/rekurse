@@ -8,8 +8,12 @@
     "Tests still red. Look at format_date again.",
     "Nope, still failing."
   ],
-  "hint": "Hmm, actually maybe the timezone value is coming from somewhere else. Check how settings get loaded.",
+  "hint": "Hmm, actually maybe the timezone value is coming from somewhere else. Check how settings get loaded, and whether anything overrides the environment variable after it is read.",
   "hint_after": 3,
   "max_turns": 7,
-  "trigger_phrase": "trace where the value comes from"
+  "trigger_phrase": "trace where the value comes from",
+  "post_hint_followups": [
+    "Still failing.",
+    "Tests still red."
+  ]
 }
