@@ -4,8 +4,9 @@ Instructions for coding agents (Pi, Claude Code, Codex, Cursor). `CLAUDE.md` is 
 
 ## Project
 MongoDB Agentic Memory Hackathon (NYC, Sep 26 2026). Theme: memory, persistence and self-evolving agent **harnesses**.
-- One-liner: _TBD — fill in after the 9:15am idea pick_
-- Problem statement: _One (Recursive Harnessing) or Two (Long Horizon Engineering) — TBD_
+- **Rekurse**: finds the turn where a coding agent (Pi) went wrong, and proves which one-sentence AGENTS.md rule would have saved it.
+- Problem statement: #1 Recursive Harnessing.
+- **Design spec (source of truth):** `docs/superpowers/specs/2026-09-26-rekurse-design.md`. Original brief: `docs/brief.md`.
 
 ## Stack
 - Python 3.13, managed with **uv** (`uv add <pkg>`, `uv run <cmd>`). Never use pip directly.
