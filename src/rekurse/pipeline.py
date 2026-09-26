@@ -325,8 +325,13 @@ def reflect(candidates: list[str], trap: Trap, store, run_group: str, session_id
             store.save_lesson({**base, "status": "rejected", "reason": f"not_general: {reason}", "top1_similarity": None})
             log(f"  lesson rejected ({reason}): {text}")
             continue
+        # Atlas indexes new docs with a lag of seconds, so also compare against this batch's survivors locally.
         top = store.similar_lessons(emb, k=1)
         top = top[0] if top else None
+        for prev in survivors:
+            c = cosine(emb, prev["embedding"])
+            if top is None or c > top["score"]:
+                top = dict(prev, score=c)
         top_score = top["score"] if top else None
         if top and top_score >= threshold:
             store.update_lesson(top["_id"], {"seen_count": top.get("seen_count", 1) + 1,
