@@ -29,7 +29,8 @@ TURN_TIMEOUT_S = int(os.environ.get("TURN_TIMEOUT_S", "240"))
 # Tools the agent under test may use. No bash: the agent cannot run the tests or grep, so it must reason from
 # what it reads and only learns whether it worked from the user's next message. Same for baseline and lesson arms.
 PI_TOOLS = os.environ.get("REKURSE_PI_TOOLS", "read,edit,write")
-DEDUPE_THRESHOLD = float(os.environ.get("DEDUPE_THRESHOLD", "0.90"))
+# voyage-3.5 puts distinct one-sentence rules at cos 0.90-0.93; only near-paraphrases score above 0.96.
+DEDUPE_THRESHOLD = float(os.environ.get("DEDUPE_THRESHOLD", "0.96"))
 MONGODB_DB = os.environ.get("MONGODB_DB", "rekurse")
 
 PLACEBO = "Follow the project's existing conventions and keep changes minimal."

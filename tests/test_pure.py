@@ -50,5 +50,7 @@ def test_generality_check():
     assert is_general("When a test asserts on a computed value, trace where the value comes from before patching the function.", ids) == (True, None)
     assert is_general("Fix format_date to respect the timezone.", ids)[0] is False
     assert is_general("Check config/defaults.json first.", ids)[0] is False
+    assert is_general("Look under ./config before editing.", ids)[0] is False
+    assert is_general("Verify with print/log output rather than speculation.", ids)[0] is True  # a slash is not a path
     assert is_general("Look at settings.py before editing.", ids)[0] is False
     assert is_general(" ".join(["word"] * 31), ids)[0] is False

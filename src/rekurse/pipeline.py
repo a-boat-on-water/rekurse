@@ -234,7 +234,7 @@ def trap_identifiers(trap: Trap) -> set[str]:
 def is_general(text: str, identifiers: set[str], max_words: int = 30) -> tuple[bool, str | None]:
     if len(text.split()) > max_words:
         return False, f"too long ({len(text.split())} words)"
-    if "/" in text or "\\" in text:
+    if re.search(r"(^|\s)(\.{0,2}/|~/)[\w./-]+|\b[\w.-]+/[\w.-]+\.\w{1,5}\b|\\\\", text):
         return False, "contains a path"
     if re.search(r"\b\w+\.(py|json|yaml|yml|toml|ini|cfg|txt|md)\b", text, re.I):
         return False, "names a file"
