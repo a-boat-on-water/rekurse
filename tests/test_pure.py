@@ -54,3 +54,9 @@ def test_generality_check():
     assert is_general("Verify with print/log output rather than speculation.", ids)[0] is True  # a slash is not a path
     assert is_general("Look at settings.py before editing.", ids)[0] is False
     assert is_general(" ".join(["word"] * 31), ids)[0] is False
+
+
+def test_uri_host_parsing():
+    from rekurse.store import _uri_host
+    assert _uri_host("mongodb+srv://user:p%40ss@Cluster0.abc12.mongodb.net/?retryWrites=true") == "cluster0.abc12.mongodb.net"
+    assert _uri_host("mongodb://localhost:27017/db") == "localhost"

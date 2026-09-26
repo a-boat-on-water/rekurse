@@ -58,6 +58,13 @@ class MemoryStore:
         return max(docs, key=lambda d: d.get("created_at", ""), default=None)
 
 
+def _uri_host(uri: str) -> str:
+    """Hostname part of a mongodb:// or mongodb+srv:// URI (lower-cased, no credentials, no port)."""
+    rest = uri.split("://", 1)[-1]
+    rest = rest.rsplit("@", 1)[-1]
+    return rest.split("/", 1)[0].split("?", 1)[0].split(":", 1)[0].lower()
+
+
 class MongoStore:
     kind = "mongo"
 
@@ -66,6 +73,13 @@ class MongoStore:
         import os
         os.environ.setdefault("MONGODB_DB", MONGODB_DB)
         self.db = db or get_db()
+        self.host = _uri_host(os.environ.get("MONGODB_URI", ""))
+        expected = os.environ.get("ATLAS_SANDBOX_HOST", "").strip().lower()
+        if expected and self.host != expected:
+            raise RuntimeError(f"MONGODB_URI points at {self.host!r}, not the hackathon Atlas Sandbox {expected!r} "
+                               "(spec §5.1). Fix .env; results on any other cluster are not eligible.")
+        if not expected:
+            print(f"WARNING: ATLAS_SANDBOX_HOST not set; writing to {self.host} without the sandbox guard (spec §5.1)")
         self.db["runs"].create_index([("run_group", 1), ("purpose", 1), ("checkpoint_k", 1)])
         self.db["checkpoints"].create_index([("session_id", 1), ("k", 1)])
 

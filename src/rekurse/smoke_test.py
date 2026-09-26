@@ -18,7 +18,14 @@ def run() -> None:
     step("Connecting to MongoDB Atlas")
     db = get_db()
     db.client.admin.command("ping")
-    print(f"  ok — database '{db.name}'")
+    from .store import _uri_host
+    host = _uri_host(os.environ.get("MONGODB_URI", ""))
+    expected = os.environ.get("ATLAS_SANDBOX_HOST", "")
+    print(f"  ok — database '{db.name}' on host {host}")
+    if expected and host != expected.lower():
+        raise RuntimeError(f"connected to {host}, but ATLAS_SANDBOX_HOST is {expected} (must use the hackathon sandbox)")
+    if not expected:
+        print("  WARNING: ATLAS_SANDBOX_HOST not set in .env; the sandbox guard is off")
 
     step(f"Embedding with {provider()} ({dims()} dims)")
     coll = db[f"smoke_{provider()}"]
