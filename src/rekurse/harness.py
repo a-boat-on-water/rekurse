@@ -128,6 +128,10 @@ def fork_before(session_file: Path, k: int, dst: Path, old_cwd: str, new_cwd: st
 def pi_command(session_file: Path, session_dir: Path, message: str, model: str, system_append: str) -> list[str]:
     cmd = [*PI_BIN, "-p", "--mode", "json", "--session", str(session_file), "--session-dir", str(session_dir),
            "--model", model, "--approve", "--no-extensions", "--no-skills", "--no-context-files"]
+    # Pi prefers its own OAuth login over env vars; pass the API key explicitly so the run bills the key.
+    key = {"anthropic": os.environ.get("ANTHROPIC_API_KEY"), "openai": os.environ.get("OPENAI_API_KEY")}.get(model.split("/")[0])
+    if key:
+        cmd += ["--api-key", key]
     if system_append:
         cmd += ["--append-system-prompt", system_append]
     return cmd + ["--", message]

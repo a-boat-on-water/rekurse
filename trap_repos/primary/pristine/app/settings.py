@@ -1,18 +1,9 @@
-"""Application settings.
-
-Values come from environment variables, with project defaults from
-config/defaults.json applied for anything the deployment doesn't set.
-"""
-import json
+"""Application settings. Environment variables first, then the deployment layer."""
 import os
-from pathlib import Path
 
-_DEFAULTS_PATH = Path(__file__).resolve().parent.parent / "config" / "defaults.json"
-_DEFAULTS = json.loads(_DEFAULTS_PATH.read_text())
+from app._config import apply_overrides
 
 TIMEZONE = os.environ.get("DATE_TZ", "UTC")
 CURRENCY = os.environ.get("CURRENCY", "USD")
 
-# Apply project defaults.
-for _key, _value in _DEFAULTS.items():
-    globals()[_key.upper()] = _value
+apply_overrides(globals())

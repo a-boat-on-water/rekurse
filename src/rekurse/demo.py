@@ -72,6 +72,13 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
     log(f"  sweep rates {rates}; wrong turn = {wt}")
 
     log("== reflect")
+    if embed is None:
+        from dotenv import load_dotenv
+        load_dotenv(override=True)          # a key added to .env while record/sweep ran is picked up here
+        embed, dims, provider_name = pick_embedder(log)
+        log(f"  embeddings: {provider_name} ({dims} dims)")
+        if hasattr(store, "ensure_indexes"):
+            store.ensure_indexes(dims)
     transcript = pipeline.transcript_before_hint(session, cps)
     diff = pipeline.fix_diff(session, cps)
     candidates = reflector(transcript, diff)
@@ -148,11 +155,28 @@ def _fake_mode():
     os.environ.setdefault("REKURSE_FAKE_RECOVER_BEFORE", "2")
 
 
-def _mongo_store():
-    from .embeddings import dims
+def pick_embedder(log=print):
+    """Real embeddings (Voyage, then OpenAI) if a provider actually answers; else the hashed fallback.
+
+    The fallback keeps the pipeline runnable when no embedding provider has credit. Dedupe then works on
+    word overlap instead of semantics, and the lesson doc records `embedding_provider` so the report is honest.
+    """
+    try:
+        from .embeddings import dims, embed, provider
+        name = provider()
+        embed(["probe"])
+        return embed, dims(), name
+    except Exception as e:  # noqa: BLE001 - any provider failure means fall back
+        log(f"  embeddings unavailable ({type(e).__name__}); using hashed bag-of-words fallback (256 dims)")
+        return fake_embed, 256, "hashed-fallback"
+
+
+def _mongo_store(dims: int | None = None):
     from .store import MongoStore
     store = MongoStore()
-    store.ensure_indexes(dims())
+    if dims is None:
+        _, dims, _ = pick_embedder()
+    store.ensure_indexes(dims)
     return store
 
 
@@ -172,7 +196,11 @@ def main(argv=None):
 
     if a.cmd == "replay":
         if a.fake: _fake_mode()
-        store = MemoryStore() if a.fake else _mongo_store()
+        if a.fake:
+            store = MemoryStore()
+        else:
+            from .store import MongoStore
+            store = MongoStore()
         trap = load_trap(a.trap)
         session = store.get_session(a.session) if a.session else None
         cps = store.get_checkpoints(a.session) if a.session else None
@@ -188,10 +216,11 @@ def main(argv=None):
         rg = a.run_group or f"fake-{uuid.uuid4().hex[:6]}"
         doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", stub_reflector, fake_embed)
     elif a.live:
-        from .embeddings import embed
-        store = _mongo_store()
+        from .store import MongoStore
+        print(f"agent model: {harness.AGENT_MODEL}; reflector: {pipeline.REFLECTOR_MODEL}; embeddings chosen at reflect time")
+        store = MongoStore()
         rg = a.run_group or f"live-{datetime.now().strftime('%m%d-%H%M')}"
-        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", pipeline.propose_lessons_llm, embed)
+        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", pipeline.propose_lessons_llm, None)
     else:
         store = _mongo_store()
         doc = store.get_report(a.run_group) if a.run_group else store.latest_report()

@@ -70,6 +70,8 @@ class MongoStore:
 
     def ensure_indexes(self, dims: int):
         from .db import ensure_vector_index
+        if "lessons" not in self.db.list_collection_names():
+            self.db.create_collection("lessons")   # search indexes need an existing collection
         ensure_vector_index(self.db["lessons"], dims, filters=["run_group"])
 
     def _up(self, coll, doc):
