@@ -45,7 +45,7 @@ def record(trap: Trap, store, run_group: str, work_root: Path, log=print) -> dic
         log(f"  record turn {k}: {msg!r}")
         r = harness.run_turn(repo, session_file, sessions / "sd", msg, system_append="")
         if not r.ok:
-            log(f"  turn {k} did not complete: {r.stop_reason} {r.error or ''}")
+            log(f"  turn {k} did not complete: {r.stop_reason}{' (timed out)' if r.timed_out else ''} {r.error or ''}")
         cp.agent_msg_excerpt = (r.assistant_text or "")[:600]
         checkpoints.append(cp)
         if harness.evaluate(repo, trap).passed:

@@ -25,7 +25,7 @@ SEEDS = int(os.environ.get("REKURSE_SEEDS", "3"))
 DECISION_SEEDS = int(os.environ.get("REKURSE_DECISION_SEEDS", "5"))
 CONCURRENCY = int(os.environ.get("REKURSE_CONCURRENCY", "4"))
 REPLAY_MAX_TURNS = int(os.environ.get("REPLAY_MAX_TURNS", "2"))
-TURN_TIMEOUT_S = int(os.environ.get("TURN_TIMEOUT_S", "120"))
+TURN_TIMEOUT_S = int(os.environ.get("TURN_TIMEOUT_S", "240"))
 DEDUPE_THRESHOLD = float(os.environ.get("DEDUPE_THRESHOLD", "0.90"))
 MONGODB_DB = os.environ.get("MONGODB_DB", "rekurse")
 
