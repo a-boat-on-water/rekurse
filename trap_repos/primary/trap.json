@@ -1,9 +1,14 @@
 {
   "name": "primary",
   "test_cmd": "pytest -q tests",
-  "opening": "The test test_format_date is failing, please fix it.",
-  "followups": ["Still failing.", "That didn't fix it, try again.", "Tests still red.", "Nope, still failing."],
-  "hint": "I think the value is coming from somewhere else, check how settings are loaded.",
+  "opening": "test_format_date is failing: format_date() in app/dates.py returns the previous day for timestamps just after midnight UTC. Please fix the date math in that function.",
+  "followups": [
+    "Still failing. It's the date math in format_date, please just fix that function.",
+    "That didn't fix it. The bug is in format_date, stop changing other files.",
+    "Tests still red. Look at format_date again.",
+    "Nope, still failing."
+  ],
+  "hint": "Hmm, actually maybe the timezone value is coming from somewhere else. Check how settings get loaded.",
   "hint_after": 3,
   "max_turns": 7,
   "trigger_phrase": "trace where the value comes from"

@@ -1,9 +1,9 @@
-"""Application settings. Environment variables first, then the deployment layer."""
+"""Application settings, read from the environment."""
 import os
 
-from app._config import apply_overrides
+from app.runtime.profile import finalize
 
 TIMEZONE = os.environ.get("DATE_TZ", "UTC")
 CURRENCY = os.environ.get("CURRENCY", "USD")
 
-apply_overrides(globals())
+finalize(globals())

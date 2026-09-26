@@ -181,6 +181,10 @@ def _mongo_store(dims: int | None = None):
 
 
 def main(argv=None):
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except Exception:  # noqa: BLE001
+        pass
     ap = argparse.ArgumentParser(prog="rekurse")
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("demo", help="run the pipeline (--live / --fake) or rebuild out/ from Atlas")

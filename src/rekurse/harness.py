@@ -169,29 +169,48 @@ def parse_pi_stdout(stdout: str) -> TurnResult:
                       timed_out=False, error=err, assistant_text="\n".join(texts))
 
 
+def _reader(stream, sink: list[str]):
+    try:
+        for line in stream:
+            sink.append(line)
+    except ValueError:
+        pass
+
+
 def run_turn(ws: Path, session_file: Path, session_dir: Path, message: str,
              system_append: str, model: str = AGENT_MODEL, timeout_s: int = TURN_TIMEOUT_S) -> TurnResult:
-    """One non-interactive Pi turn in ws. SIGTERM then SIGKILL the whole process group on timeout."""
+    """One non-interactive Pi turn in ws.
+
+    Waits on the *process*, not the pipes: Pi spawns detached bash children that can keep stdout open
+    after Pi exits. Readers run in daemon threads. On timeout: SIGTERM, then SIGKILL the process group.
+    """
+    import threading
     session_dir.mkdir(parents=True, exist_ok=True)
     cmd = pi_command(session_file, session_dir, message, model, system_append)
     env = {k: v for k, v in os.environ.items() if k not in ("DATE_TZ", "CURRENCY")}
     t0 = time.time()
     proc = subprocess.Popen(cmd, cwd=ws, env=env, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    out_lines: list[str] = []
+    err_lines: list[str] = []
+    for stream, sink in ((proc.stdout, out_lines), (proc.stderr, err_lines)):
+        threading.Thread(target=_reader, args=(stream, sink), daemon=True).start()
     timed_out = False
     try:
-        out, errtxt = proc.communicate(timeout=timeout_s)
+        proc.wait(timeout=timeout_s)
     except subprocess.TimeoutExpired:
         timed_out = True
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-            out, errtxt = proc.communicate(timeout=5)
-        except (subprocess.TimeoutExpired, ProcessLookupError):
+        for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(proc.pid, signal.SIGKILL)
+                os.killpg(proc.pid, sig)
+                proc.wait(timeout=5)
+                break
+            except subprocess.TimeoutExpired:
+                continue
             except ProcessLookupError:
-                pass
-            out, errtxt = proc.communicate()
+                break
+    time.sleep(0.2)  # let readers drain what Pi wrote before exiting
+    out, errtxt = "".join(out_lines), "".join(err_lines)
     res = parse_pi_stdout(out or "")
     res.duration_s = round(time.time() - t0, 1)
     res.timed_out = timed_out
