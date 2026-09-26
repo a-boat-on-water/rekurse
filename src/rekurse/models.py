@@ -27,7 +27,7 @@ REFLECTOR_MODEL = os.environ.get("REKURSE_REFLECTOR_MODEL", "claude-sonnet-5" if
 SEEDS = int(os.environ.get("REKURSE_SEEDS", "3"))
 DECISION_SEEDS = int(os.environ.get("REKURSE_DECISION_SEEDS", "5"))
 CONCURRENCY = int(os.environ.get("REKURSE_CONCURRENCY", "4"))
-REPLAY_MAX_TURNS = int(os.environ.get("REPLAY_MAX_TURNS", "2"))
+REPLAY_MAX_TURNS = int(os.environ.get("REPLAY_MAX_TURNS", "3"))
 TURN_TIMEOUT_S = int(os.environ.get("TURN_TIMEOUT_S", "240"))
 # Tools the agent under test may use. No bash: the agent cannot run the tests or grep, so it must reason from
 # what it reads and only learns whether it worked from the user's next message. Same for baseline and lesson arms.

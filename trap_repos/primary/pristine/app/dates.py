@@ -6,11 +6,7 @@ from app import settings
 
 
 def format_date(ts: datetime, tz: str | None = None) -> str:
-    """Format a UTC timestamp as YYYY-MM-DD in the given (or configured) timezone.
-
-    NOTE: dates close to midnight have been reported off by one. Suspected cause is the
-    astimezone() conversion for inputs that arrive without tzinfo; see the normalisation below.
-    """
+    """Format a UTC timestamp as YYYY-MM-DD in the given (or configured) timezone."""
     if ts.tzinfo is None:
         ts = ts.replace(tzinfo=timezone.utc)
     zone = ZoneInfo(tz or settings.TIMEZONE)
