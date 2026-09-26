@@ -139,8 +139,12 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
     notes += d.notes
     if best:
         for L in lessons:
-            status = "adopted" if (L["_id"] == best["_id"] and d.adopted) else ("rejected" if L["_id"] == best["_id"] else "candidate")
-            reason = None if status != "rejected" else "; ".join(d.failed_conditions)
+            ls_, ln_ = lesson_rates[L["_id"]]
+            if L["_id"] == best["_id"]:
+                status = "adopted" if d.adopted else "rejected"
+                reason = None if d.adopted else "; ".join(d.failed_conditions)
+            else:
+                status, reason = "rejected", f"rescue {ls_}/{ln_} at wrong turn, not the best lesson"
             store.update_lesson(L["_id"], {"status": status, "reason": reason, "scores": {
                 "wrong_turn": list(lesson_rates[L["_id"]]),
                 "decision": list(decision_l) if L["_id"] == best["_id"] else None,

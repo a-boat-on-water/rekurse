@@ -89,7 +89,8 @@ def replay_one(spec: ReplaySpec, trap: Trap, store, work_root: Path, session_doc
     # Injection: the lesson (or a placebo for the baseline arm) is a line in the workspace's AGENTS.md, which Pi
     # loads into its system prompt on every turn. Same mechanism the adopted lesson uses in real life.
     (ws / "AGENTS.md").write_text(agents_md(spec.lesson_text))
-    messages = [first_msg] + [f for f in trap.followups if f != trap.hint]
+    # Replays: the recorded (misdirecting) message at the checkpoint, then neutral nags. Same for both arms.
+    messages = [first_msg] + list(trap.post_hint_followups)
     t0 = time.time()
     success, turns, tokens, stop, timed_out, out = False, 0, 0, None, False, ""
     for msg in messages[:REPLAY_MAX_TURNS]:
