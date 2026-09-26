@@ -81,21 +81,26 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
     log(f"  probed rates {rates}; wrong turn = {wt}")
 
     log("== reflect")
-    if embed is None:
+    existing = [L for L in store.lessons(run_group) if L.get("status") in ("candidate", "adopted", "rejected") and L.get("embedding")]
+    if session_id and existing:
+        lessons = [L for L in existing if not str(L.get("reason") or "").startswith("not_general")]
+        log(f"  resume: reusing {len(lessons)} lessons already reflected for {run_group}")
+    if embed is None and not (session_id and existing):
         from dotenv import load_dotenv
         load_dotenv(override=True)          # a key added to .env while record/sweep ran is picked up here
         embed, dims, provider_name = pick_embedder(log)
         log(f"  embeddings: {provider_name} ({dims} dims)")
         if hasattr(store, "ensure_indexes"):
             store.ensure_indexes(dims)
-    transcript = pipeline.transcript_before_hint(session, cps)
-    diff = pipeline.fix_diff(session, cps)
-    candidates = reflector(transcript, diff)
-    log(f"  reflector returned {len(candidates)} candidates")
-    if not candidates:
-        log("  reflector returned nothing; retrying once")
+    if not (session_id and existing):
+        transcript = pipeline.transcript_before_hint(session, cps)
+        diff = pipeline.fix_diff(session, cps)
         candidates = reflector(transcript, diff)
-    lessons = pipeline.reflect(candidates, trap, store, run_group, session["_id"], embed, log=log)
+        log(f"  reflector returned {len(candidates)} candidates")
+        if not candidates:
+            log("  reflector returned nothing; retrying once")
+            candidates = reflector(transcript, diff)
+        lessons = pipeline.reflect(candidates, trap, store, run_group, session["_id"], embed, log=log)
 
     lesson_rates, best = {}, None
     decision_l, decision_b = (0, 0), (0, 0)

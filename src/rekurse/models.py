@@ -44,6 +44,8 @@ def agents_md(lesson: str | None) -> str:
 
     Imperative framing so the model treats it as a rule, not a suggestion. Identical wrapper for both arms.
     """
+    if os.environ.get("REKURSE_AGENTS_STYLE", "imperative") == "plain":   # style used by runs before 2026-09-26 16:00
+        return f"# Project notes\n\n## Proven lessons\n- {lesson or PLACEBO}\n"
     return (
         "# Project rules for coding agents\n\n"
         "## Mandatory: before editing any file\n"
