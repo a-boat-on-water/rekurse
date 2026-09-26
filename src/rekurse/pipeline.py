@@ -251,8 +251,16 @@ REFLECT_PROMPT = """You are reviewing a coding agent's session that went badly. 
 Below is the transcript up to the point where a human stepped in, followed by the diff of the fix that finally worked.
 
 Propose exactly 3 short, general rules (one sentence each, under 25 words) that would have led the agent to find
-this fix on its own. Rules must be general engineering practice: no file names, function names, variable names,
-line numbers, or project-specific words. Output one rule per line, no numbering, nothing else.
+this fix on its own. Constraints:
+- The agent can only read and edit files. It cannot run commands, tests, or scripts, so rules must not ask it to
+  reproduce, print, log, or execute anything.
+- Each rule must be actionable from the agent's very first response, before it has received any feedback. Rules
+  that only fire after "repeated failures" are useless here.
+- The user's first message pointed at the wrong place. Good rules say what to verify, and where to look, before
+  trusting a reported location and editing it.
+- General engineering practice only: no file names, function names, variable names, line numbers, or
+  project-specific words.
+Output one rule per line, no numbering, nothing else.
 
 TRANSCRIPT
 {transcript}
