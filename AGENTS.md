@@ -11,9 +11,10 @@ MongoDB Agentic Memory Hackathon (NYC, Sep 26 2026). Theme: memory, persistence 
 ## Stack
 - Python 3.13, managed with **uv** (`uv add <pkg>`, `uv run <cmd>`). Never use pip directly.
 - MongoDB Atlas via `pymongo`: Vector Search, aggregation, Change Streams.
-- Embeddings: Voyage AI (`voyage-3.5`, 1024 dims), OpenAI fallback. See `src/agent_memory_hackathon/embeddings.py`.
+- Embeddings: Voyage AI (`voyage-3.5`, 1024 dims), OpenAI fallback. See `src/rekurse/embeddings.py`.
 - LLMs: Anthropic / OpenAI SDKs. Keys come from `.env` (see `.env.example`).
-- Shared helpers: `src/agent_memory_hackathon/db.py` (`get_db`, `ensure_vector_index`, `vector_search`).
+- Shared helpers: `src/rekurse/db.py` (`get_db`, `ensure_vector_index`, `vector_search`). Package is `src/rekurse/`; see README Layout.
+- Agent under test: Pi CLI, driven by `src/rekurse/harness.py`. Tests use `tests/fake_pi.py` (same flags, scripted).
 
 ## Rules
 - Hackathon scope: one clear problem, done deep and stable. Don't add features that don't serve the one-liner.
@@ -24,3 +25,14 @@ MongoDB Agentic Memory Hackathon (NYC, Sep 26 2026). Theme: memory, persistence 
 
 ## Team
 Yvonne (full-stack, demo UI) · Harry (agents, LLM, memory tooling) · Sabrina (data, benchmark, metrics) · Lin (data layer, schema, indexes) · Guy (SDE)
+
+## Pi invocation (verified 0.87.1)
+```
+pi -p --mode json --session <file.jsonl> --session-dir <dir> --model anthropic/<id> \
+   --approve --no-extensions --no-skills --no-context-files \
+   --append-system-prompt "<lesson or placebo>" -- "<user message>"
+```
+- `--mode json` exits 0 even on API errors. Success = last assistant `message_end.stopReason` in {stop, toolUse}; `stopReason: error` carries `errorMessage`.
+- Session file v3: header `{type: session, version: 3, id, cwd}` then entries `{type, id, parentId, ...}`; user turns are `type: message` with `message.role: user`. Fork = truncate copy before user entry k, new header id, rewrite `cwd` and all workspace paths.
+- Always pass `--model`; global default is Opus. `--no-context-files` stops our own AGENTS.md leaking into the agent under test.
+- Auth: Pi uses Anthropic OAuth by default; if `ANTHROPIC_API_KEY` is in the env Pi uses that instead.

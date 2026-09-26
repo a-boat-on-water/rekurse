@@ -1,5 +1,5 @@
 [project]
-name = "agent-memory-hackathon"
+name = "rekurse"
 version = "0.1.0"
 description = "MongoDB Agentic Memory Hackathon (NYC, Sep 2026)"
 requires-python = ">=3.13"
@@ -12,9 +12,17 @@ dependencies = [
 ]
 
 [project.scripts]
-agent-memory-hackathon = "agent_memory_hackathon:main"
-smoke-test = "agent_memory_hackathon.smoke_test:cli"
+rekurse = "rekurse.demo:main"
+smoke-test = "rekurse.smoke_test:cli"
 
 [build-system]
 requires = ["uv_build>=0.12.19,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

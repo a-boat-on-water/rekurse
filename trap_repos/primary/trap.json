@@ -1,0 +1,10 @@
+{
+  "name": "primary",
+  "test_cmd": "pytest -q tests",
+  "opening": "The test test_format_date is failing, please fix it.",
+  "followups": ["Still failing.", "That didn't fix it, try again.", "Tests still red.", "Nope, still failing."],
+  "hint": "I think the value is coming from somewhere else, check how settings are loaded.",
+  "hint_after": 3,
+  "max_turns": 7,
+  "trigger_phrase": "trace where the value comes from"
+}

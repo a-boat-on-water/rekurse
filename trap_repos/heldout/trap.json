@@ -1,0 +1,10 @@
+{
+  "name": "heldout",
+  "test_cmd": "pytest -q tests",
+  "opening": "test_total is failing in the invoice tests, please fix it.",
+  "followups": ["Still failing.", "That didn't fix it, try again.", "Tests still red.", "Nope, still failing."],
+  "hint": "I think the rate is coming from somewhere else, check how rates are loaded.",
+  "hint_after": 3,
+  "max_turns": 7,
+  "trigger_phrase": "trace where the value comes from"
+}
