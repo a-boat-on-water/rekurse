@@ -341,9 +341,19 @@ def propose_lessons_llm(transcript: str, diff: str, model: str = REFLECTOR_MODEL
     prompt = REFLECT_PROMPT.format(transcript=transcript, diff=diff)
     if model.startswith("claude"):
         import anthropic
-        msg = anthropic.Anthropic().messages.create(model=model, max_tokens=400,
-                                                    messages=[{"role": "user", "content": prompt}])
-        text = "\n".join(b.text for b in msg.content if getattr(b, "type", "") == "text")  # skip thinking blocks
+        client = anthropic.Anthropic()
+        text = ""
+        for attempt in range(2):   # a long transcript can make thinking eat the whole budget: retry without it
+            kwargs = {"model": model, "max_tokens": 1500, "messages": [{"role": "user", "content": prompt}]}
+            if attempt == 0:
+                kwargs["thinking"] = {"type": "disabled"}
+            try:
+                msg = client.messages.create(**kwargs)
+            except anthropic.BadRequestError:
+                msg = client.messages.create(model=model, max_tokens=1500, messages=[{"role": "user", "content": prompt}])
+            text = "\n".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+            if text.strip():
+                break
     else:
         from openai import OpenAI
         resp = OpenAI().chat.completions.create(model=model, max_completion_tokens=400,

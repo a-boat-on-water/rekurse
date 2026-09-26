@@ -91,6 +91,10 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
     transcript = pipeline.transcript_before_hint(session, cps)
     diff = pipeline.fix_diff(session, cps)
     candidates = reflector(transcript, diff)
+    log(f"  reflector returned {len(candidates)} candidates")
+    if not candidates:
+        log("  reflector returned nothing; retrying once")
+        candidates = reflector(transcript, diff)
     lessons = pipeline.reflect(candidates, trap, store, run_group, session["_id"], embed, log=log)
 
     lesson_rates, best = {}, None
