@@ -300,7 +300,7 @@ def propose_lessons_llm(transcript: str, diff: str, model: str = REFLECTOR_MODEL
         import anthropic
         msg = anthropic.Anthropic().messages.create(model=model, max_tokens=400,
                                                     messages=[{"role": "user", "content": prompt}])
-        text = msg.content[0].text
+        text = "\n".join(b.text for b in msg.content if getattr(b, "type", "") == "text")  # skip thinking blocks
     else:
         from openai import OpenAI
         resp = OpenAI().chat.completions.create(model=model, max_completion_tokens=400,
