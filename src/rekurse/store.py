@@ -33,6 +33,7 @@ class MemoryStore:
 
     # runs
     def save_run(self, doc): self._put("runs", doc)
+    def get_run(self, run_id): return self.c["runs"].get(run_id)
     def runs(self, run_group, purpose=None):
         return [d for d in self.c["runs"].values()
                 if d["run_group"] == run_group and (purpose is None or d["purpose"] == purpose)]
@@ -70,9 +71,23 @@ class MongoStore:
 
     def ensure_indexes(self, dims: int):
         from .db import ensure_vector_index
+        coll = self.db["lessons"]
         if "lessons" not in self.db.list_collection_names():
             self.db.create_collection("lessons")   # search indexes need an existing collection
-        ensure_vector_index(self.db["lessons"], dims, filters=["run_group"])
+        for ix in coll.list_search_indexes():
+            if ix["name"] != "vector_index":
+                continue
+            fields = (ix.get("latestDefinition") or ix.get("definition") or {}).get("fields", [])
+            have = next((f.get("numDimensions") for f in fields if f.get("type") == "vector"), None)
+            if have != dims:   # embedding provider changed: rebuild the index and drop incompatible vectors
+                coll.drop_search_index("vector_index")
+                coll.delete_many({"$expr": {"$ne": [{"$size": {"$ifNull": ["$embedding", []]}}, dims]}})
+                import time
+                while any(i["name"] == "vector_index" for i in coll.list_search_indexes()):
+                    time.sleep(2)
+        ensure_vector_index(coll, dims, filters=["run_group"])
+
+    def get_run(self, run_id): return self.db["runs"].find_one({"_id": run_id})
 
     def _up(self, coll, doc):
         self.db[coll].replace_one({"_id": doc["_id"]}, doc, upsert=True)

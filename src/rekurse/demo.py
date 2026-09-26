@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import harness, pipeline, report
-from .models import (CONCURRENCY, DECISION_SEEDS, OUT_DIR, ROOT, SEEDS, ReplaySpec, load_trap)
+from .models import (CONCURRENCY, DECISION_SEEDS, OUT_DIR, ROOT, SEEDS, ReplaySpec, RunResult, load_trap)
 from .store import MemoryStore
 
 _now = lambda: datetime.now(timezone.utc).isoformat()
@@ -44,19 +44,28 @@ def stub_reflector(transcript: str, diff: str) -> list[str]:
 
 def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str, work_root: Path,
                  reflector, embed, seeds: int = SEEDS, decision_seeds: int = DECISION_SEEDS,
-                 concurrency: int = CONCURRENCY, log=print) -> dict:
+                 concurrency: int = CONCURRENCY, log=print, session_id: str | None = None) -> dict:
     trap = load_trap(trap_name)
     work_root.mkdir(parents=True, exist_ok=True)
 
-    log(f"== record ({trap.name})")
-    session = pipeline.record(trap, store, run_group, work_root, log=log)
-    if not session["accepted"]:
-        log("  recording not accepted (must fail before the hint and pass shortly after); re-recording once")
+    if session_id:
+        session = store.get_session(session_id)
+        log(f"== resume: reusing recorded session {session_id} (solved turn {session['solved_turn']})")
+    else:
+        log(f"== record ({trap.name})")
         session = pipeline.record(trap, store, run_group, work_root, log=log)
+        if not session["accepted"]:
+            log("  recording not accepted (must fail before the hint and pass shortly after); re-recording once")
+            session = pipeline.record(trap, store, run_group, work_root, log=log)
     cps = store.get_checkpoints(session["_id"])
     pre_hint = [c["k"] for c in cps if not c["is_hint"] and c["k"] < session["hint_turn"]]
 
     def replay(spec):
+        done = store.get_run(spec.run_id)       # deterministic ids: a completed, counted run is reused on resume
+        if done and not done.get("timed_out") and done.get("stop_reason") not in ("error", "aborted"):
+            return RunResult(spec=spec, success=done["success"], turns_used=done["turns_used"], duration_s=done["duration_s"],
+                             tokens=done.get("tokens"), stop_reason=done.get("stop_reason"), timed_out=False,
+                             final_test_output=done.get("final_test_output", ""))
         return pipeline.replay_one(spec, load_trap(spec.trap), store, work_root, session, cps)
 
     log(f"== sweep: baseline x{seeds} at checkpoints {pre_hint}")
@@ -191,6 +200,7 @@ def main(argv=None):
     d.add_argument("--live", action="store_true"); d.add_argument("--fake", action="store_true")
     d.add_argument("--trap", default="primary"); d.add_argument("--heldout", default=None)
     d.add_argument("--run-group", default=None); d.add_argument("--out", default=str(OUT_DIR))
+    d.add_argument("--session", default=None, help="resume: reuse this recorded session id, skip finished runs")
     r = sub.add_parser("replay", help="one replay against real Pi (spike)")
     r.add_argument("--trap", default="primary"); r.add_argument("--k", type=int, default=0)
     r.add_argument("--lesson", default="none"); r.add_argument("--seed", type=int, default=1)
@@ -224,7 +234,7 @@ def main(argv=None):
         print(f"agent model: {harness.AGENT_MODEL}; reflector: {pipeline.REFLECTOR_MODEL}; embeddings chosen at reflect time")
         store = MongoStore()
         rg = a.run_group or f"live-{datetime.now().strftime('%m%d-%H%M')}"
-        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", pipeline.propose_lessons_llm, None)
+        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", pipeline.propose_lessons_llm, None, session_id=a.session)
     else:
         store = _mongo_store()
         doc = store.get_report(a.run_group) if a.run_group else store.latest_report()
