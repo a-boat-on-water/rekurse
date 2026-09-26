@@ -19,6 +19,7 @@
 - Testing must prove it works. Judges will look at the code.
 - The presentation is a **1 minute video**.
 - Split the work between 2 and 4 people.
+- **Hackathon rule (hard requirement):** finalists must build on the **MongoDB Atlas Sandbox** cluster provided by the organizers (joined through the emailed invite link). A project built on any other cluster is not eligible for final judging or prizes. See §5.1.
 
 **What I assumed (push back if wrong):**
 - "Fork Pi" means we build on Pi and use its session forking (`--fork`, JSONL tree). We do **not** patch Pi's source unless the spike (Phase 0) proves the CLI can't do something. See §11.
@@ -27,7 +28,7 @@
 - We **bisect** to find the wrong turn instead of sweeping every checkpoint. It's cheaper, it matches the pitch, and it gives us fewer runs to babysit.
 
 **Success means:**
-1. One command (`rekurse demo`) regenerates the whole story from Atlas.
+1. One command (`rekurse demo`) regenerates the whole story from the **hackathon Atlas Sandbox** cluster.
 2. At the wrong turn, the baseline rescues **≤ 1/3** runs and the adopted lesson rescues **≥ 2/3**.
 3. On a held-out trap the lesson has never seen, with-lesson **≥** without-lesson.
 4. `uv run pytest` passes with no network and no LLM (fake Pi + in-memory store), so judges can verify the logic in 10 seconds.
@@ -213,6 +214,16 @@ A `Store` protocol with `MongoStore` (Atlas) and `MemoryStore` (dicts, with brut
 | `runs` | `{_id, session_id, trap, purpose, checkpoint_k, lesson_id\|null, seed, success, turns_used, tokens, duration_s, final_test_output, created_at}` |
 | `reports` | `{_id, session_id, wrong_turn_k, bisect_probes[], best_lesson_id, decision, failed_conditions[], postmortem_md, created_at}` |
 
+### 5.1 Atlas Sandbox (eligibility requirement)
+
+All real data lives in the organizer-provided **MongoDB Atlas Sandbox**. No personal or free-tier clusters, not even for testing, so there's never a question about where the project was built.
+
+- **One owner sets it up in Phase 0:** join the sandbox from the emailed link, create the project and cluster there, add a database user, and open Network Access for the venue (`0.0.0.0/0` for the day is fine).
+- **Everyone uses the same cluster.** The connection string is shared over a private channel (never committed). Every teammate's `.env` has `MONGODB_URI` pointing at the sandbox and `MONGODB_DB=rekurse`.
+- **Guard in code:** `.env` also sets `ATLAS_SANDBOX_HOST` (the sandbox cluster hostname). `MongoStore` refuses to connect if the host in `MONGODB_URI` doesn't match it, and `uv run smoke-test` prints the host it connected to. This stops anyone from accidentally writing results to a personal cluster.
+- **Proof for judges:** the vector index, all five collections, and the final run data are visible in the sandbox cluster, and the video shows that cluster in the Atlas UI (§9).
+- `MemoryStore` exists **only** for the offline unit tests. The product never runs on it.
+
 Vector index `lessons.embedding` (Voyage `voyage-3.5`, 1024 dims, cosine) via the existing `ensure_vector_index`. Nothing else needs an index at this scale.
 
 ---
@@ -281,7 +292,7 @@ The README gets a short "How we know it works" section that points at these test
 | 8–20s | Terminal: `rekurse demo`, runs streaming, bisect probes | "Rekurse rewinds the session to every turn, forks the agent there, and replays it with and without a candidate lesson." |
 | 20–38s | report.html: timeline + rescue grid, wrong turn outlined | "Here's the wrong turn. Without help, the agent never recovers: 0 out of 3. With this one sentence, 3 out of 3." |
 | 38–48s | Held-out bars + `out/AGENTS.md` diff | "It also works on a bug it's never seen. Only then does it earn a place in AGENTS.md." |
-| 48–60s | Atlas collections + `pytest` green | "Every session, run, and lesson lives in MongoDB, and Vector Search keeps memory from rotting. Other tools write lessons. We prove them." |
+| 48–60s | Hackathon Atlas Sandbox cluster in the Atlas UI (collections + vector index) + `pytest` green | "Every session, run, and lesson lives in MongoDB, and Vector Search keeps memory from rotting. Other tools write lessons. We prove them." |
 
 ---
 
@@ -300,7 +311,7 @@ With 3 people, C also takes D's `report.py` and the video becomes a shared last 
 
 | Time | Milestone (done means) |
 |---|---|
-| 0:00–0:30 | **Phase 0.** Package rename; `uv run smoke-test` green. A: exact Pi commands for send / continue / fork-by-truncation verified from Python, and whether `AGENTS.md` is re-read on continue; written into `AGENTS.md`. B: primary trap + self-tests green. C: `Store` protocol + `MemoryStore`, `fake_pi.py` skeleton. |
+| 0:00–0:30 | **Phase 0.** Package rename. **C: Atlas Sandbox project + cluster created from the invite link, URI shared privately, every teammate's `uv run smoke-test` green against the sandbox host (§5.1).** A: exact Pi commands for send / continue / fork-by-truncation verified from Python, and whether `AGENTS.md` is re-read on continue; written into `AGENTS.md`. B: primary trap + self-tests green. C: `Store` protocol + `MemoryStore`, `fake_pi.py` skeleton. |
 | 0:30–1:30 | **Record + replay.** `rekurse record primary` stores a session and checkpoints. `rekurse replay --k 0 --lesson none --seed 1` runs and writes a `runs` doc. C: `bisect`, `decide`, generality check with tests. D: report from fixture data. |
 | 1:30–2:15 | **Tune + reflect.** Baseline behaves as §6 targets (B + A). Reflector produces 3 lessons, deduped in Atlas (C). Held-out trap done (B). |
 | 2:15–3:00 | **Full pipeline.** `rekurse demo --live` runs bisect, lessons, held-out, decide on real Pi. At least one lesson clears the adopt bar. The fake-Pi e2e test is green. |
@@ -322,6 +333,8 @@ With 3 people, C also takes D's `report.py` and the video becomes a shared last 
 | Non-monotone baseline breaks bisect | Report shows every probed checkpoint with its n/3, so the claim stays honest. If time allows, probe one checkpoint on each side of the boundary. |
 | Noise | Always show n/3, never a single run. Say "rescue rate", not "it works". |
 | Pi project trust prompt blocks `-p` | `--approve` flag; confirm in Phase 0. |
+| Someone writes results to a non-sandbox cluster (breaks eligibility) | `ATLAS_SANDBOX_HOST` guard in `MongoStore` (§5.1); final precompute run is done on a fresh `rekurse` database in the sandbox. |
+| Sandbox cluster limits (tier, connections, index count) | Only one vector index is needed; 8 concurrent runs share one `MongoClient` per process. Check the sandbox tier supports Vector Search in Phase 0. |
 | User-global Pi config (`~/.pi`) leaks into runs | Isolated `--session-dir`, `--no-extensions`, `--no-skills`; check whether a global `AGENTS.md` is loaded and disable it if so. |
 
 ---
@@ -338,6 +351,8 @@ With 3 people, C also takes D's `report.py` and the video becomes a shared last 
 | `REPLAY_MAX_TURNS` | `4` | user turns per replay |
 | `REPLAY_TIMEOUT_S` | `300` | wall clock per replay |
 | `DEDUPE_THRESHOLD` | `0.90` | cosine for merging lessons |
+| `MONGODB_URI` | (none, required) | hackathon Atlas Sandbox connection string |
+| `ATLAS_SANDBOX_HOST` | (none, required) | sandbox cluster hostname; `MongoStore` refuses any other host |
 | `MONGODB_DB` | `rekurse` | database |
 
 Note on seeds: most hosted models don't honor a seed, so "seed" is just the run index, used to keep run ids stable. The variation comes from sampling temperature, which is what we want.
