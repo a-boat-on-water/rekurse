@@ -40,8 +40,17 @@ PLACEBO = "Follow the project's existing conventions and keep changes minimal."
 
 
 def agents_md(lesson: str | None) -> str:
-    """The AGENTS.md written into a replay workspace: the lesson under test, or a placebo of similar length."""
-    return f"# Project notes\n\n## Proven lessons\n- {lesson or PLACEBO}\n"
+    """The AGENTS.md written into a replay workspace: the lesson under test, or a placebo of similar length.
+
+    Imperative framing so the model treats it as a rule, not a suggestion. Identical wrapper for both arms.
+    """
+    return (
+        "# Project rules for coding agents\n\n"
+        "## Mandatory: before editing any file\n"
+        f"You MUST follow this rule on every task, even when the user tells you exactly what to change:\n\n"
+        f"**{lesson or PLACEBO}**\n\n"
+        "State in one sentence how you applied it before your first edit.\n"
+    )
 
 
 @dataclass
