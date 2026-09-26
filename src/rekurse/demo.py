@@ -50,6 +50,8 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
 
     if session_id:
         session = store.get_session(session_id)
+        if run_group != session["run_group"]:
+            raise ValueError(f"session {session_id} belongs to run group {session['run_group']!r}, not {run_group!r}")
         log(f"== resume: reusing recorded session {session_id} (solved turn {session['solved_turn']})")
     else:
         log(f"== record ({trap.name})")
@@ -57,6 +59,8 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
         if not session["accepted"]:
             log("  recording not accepted (must fail before the hint and pass shortly after); re-recording once")
             session = pipeline.record(trap, store, run_group, work_root, log=log)
+            if not session["accepted"]:
+                raise RuntimeError("recording was not accepted after two attempts; no replay or lesson claim can be made")
     cps = store.get_checkpoints(session["_id"])
     pre_hint = [c["k"] for c in cps if not c["is_hint"] and c["k"] < session["hint_turn"]]
 
@@ -68,17 +72,22 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
                              final_test_output=done.get("final_test_output", ""))
         return pipeline.replay_one(spec, load_trap(spec.trap), store, work_root, session, cps)
 
-    log(f"== sweep: baseline x{seeds} at checkpoints {pre_hint}")
-    sweep = pipeline.run_many(
-        [ReplaySpec(run_group, trap.name, session["_id"], k, None, None, s, "sweep") for k in pre_hint for s in range(1, seeds + 1)],
-        replay, concurrency, log)
-    rates = {k: pipeline.rescue_rate(r for r in sweep if r.spec.checkpoint_k == k) for k in pre_hint}
-    wt = pipeline.find_wrong_turn(rates)
+    log(f"== binary search: baseline x{seeds} at checkpoints {pre_hint}")
+    def probe(k):
+        runs = pipeline.run_many(
+            [ReplaySpec(run_group, trap.name, session["_id"], k, None, None, s, "sweep") for s in range(1, seeds + 1)],
+            replay, concurrency, log)
+        rate = pipeline.rescue_rate(runs)
+        if rate[1] != seeds:
+            raise RuntimeError(f"baseline probe at checkpoint {k} has only {rate[1]}/{seeds} counted runs")
+        return rate
+    # Search only sampled checkpoints; storing these exact probes keeps the report honest about coverage.
+    wt, rates = pipeline.bisect_wrong_turn(pre_hint, probe)
     notes = []
     if wt is None:
         wt = pre_hint[-1]
         notes.append("baseline recovered from every probed checkpoint; testing lessons at the last pre-hint turn")
-    log(f"  sweep rates {rates}; wrong turn = {wt}")
+    log(f"  probed rates {rates}; wrong turn = {wt}")
 
     log("== reflect")
     if embed is None:
@@ -93,7 +102,7 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
     candidates = reflector(transcript, diff)
     lessons = pipeline.reflect(candidates, trap, store, run_group, session["_id"], embed, log=log)
 
-    lesson_rates, best = {}, None
+    lesson_rates, best, last_rate = {}, None, None
     decision_l, decision_b = (0, 0), (0, 0)
     if lessons:
         log(f"== lessons x{seeds} at wrong turn {wt}")
@@ -108,6 +117,15 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
             turns = sum(r.turns_used for r in lr if r.spec.lesson_id == L["_id"] and r.success)
             return (s / n if n else 0, -turns)
         best = max(lessons, key=key)
+        last_k = pre_hint[-1]
+        if last_k == wt:
+            last_rate = lesson_rates[best["_id"]]
+        else:
+            log(f"== best lesson at last pre-hint checkpoint {last_k} x{seeds}")
+            last_runs = pipeline.run_many(
+                [ReplaySpec(run_group, trap.name, session["_id"], last_k, best["_id"], best["text"], s, "last_turn")
+                 for s in range(1, seeds + 1)], replay, concurrency, log)
+            last_rate = pipeline.rescue_rate(last_runs)
         log(f"== decision: best lesson {best['_id']} top-up to {decision_seeds} + fresh baseline x{decision_seeds} at {wt}")
         extra = list(range(seeds + 1, decision_seeds + 1))
         dec = pipeline.run_many(
@@ -122,11 +140,11 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
         log(f"== held-out ({heldout_name}): lesson vs placebo, fresh start x{seeds}")
         ho = load_trap(heldout_name)
         hr = pipeline.run_many(
-            [ReplaySpec(run_group, ho.name, None, 0, best["_id"], best["text"], s, "heldout") for s in range(1, seeds + 1)] +
-            [ReplaySpec(run_group, ho.name, None, 0, None, None, s, "heldout") for s in range(1, seeds + 1)],
+            [ReplaySpec(run_group, ho.name, None, 0, best["_id"], best["text"], s, "heldout_with") for s in range(1, 4)] +
+            [ReplaySpec(run_group, ho.name, None, 0, None, None, s, "heldout_without") for s in range(1, 4)],
             lambda sp: pipeline.replay_one(sp, ho, store, work_root), concurrency, log)
-        hw = pipeline.rescue_rate(r for r in hr if r.spec.lesson_id)
-        hwo = pipeline.rescue_rate(r for r in hr if r.spec.lesson_id is None)
+        hw = pipeline.rescue_rate(r for r in hr if r.spec.purpose == "heldout_with")
+        hwo = pipeline.rescue_rate(r for r in hr if r.spec.purpose == "heldout_without")
 
     d = pipeline.decide(decision_l, decision_b, hw, hwo) if best else pipeline.Decision(False, ["no lesson survived the generality check"])
     notes += d.notes
@@ -136,13 +154,14 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
             reason = None if status != "rejected" else "; ".join(d.failed_conditions)
             store.update_lesson(L["_id"], {"status": status, "reason": reason, "scores": {
                 "wrong_turn": list(lesson_rates[L["_id"]]),
+                "last_turn": list(last_rate) if L["_id"] == best["_id"] and last_rate is not None else None,
                 "decision": list(decision_l) if L["_id"] == best["_id"] else None,
                 "heldout_with": list(hw) if hw and L["_id"] == best["_id"] else None,
                 "heldout_without": list(hwo) if hwo and L["_id"] == best["_id"] else None,
                 "computed_from_run_group": run_group}})
     doc = {
         "_id": run_group, "run_group": run_group, "session_id": session["_id"], "trap": trap.name, "heldout": heldout_name,
-        "wrong_turn_k": wt, "probed_ks": pre_hint, "sweep_rates": {str(k): list(v) for k, v in rates.items()},
+        "wrong_turn_k": wt, "probed_ks": sorted(rates), "sweep_rates": {str(k): list(v) for k, v in rates.items()},
         "lesson_rates": {k: list(v) for k, v in lesson_rates.items()}, "best_lesson_id": best["_id"] if best else None,
         "decision_lesson": list(decision_l), "decision_baseline": list(decision_b),
         "heldout_with": list(hw) if hw else None, "heldout_without": list(hwo) if hwo else None,
@@ -165,27 +184,19 @@ def _fake_mode():
 
 
 def pick_embedder(log=print):
-    """Real embeddings (Voyage, then OpenAI) if a provider actually answers; else the hashed fallback.
-
-    The fallback keeps the pipeline runnable when no embedding provider has credit. Dedupe then works on
-    word overlap instead of semantics, and the lesson doc records `embedding_provider` so the report is honest.
-    """
+    """Require the configured real embedding provider; never change Atlas dimensions silently."""
+    from .embeddings import dims, embed, provider
+    name = provider()
     try:
-        from .embeddings import dims, embed, provider
-        name = provider()
         embed(["probe"])
-        return embed, dims(), name
-    except Exception as e:  # noqa: BLE001 - any provider failure means fall back
-        log(f"  embeddings unavailable ({type(e).__name__}); using hashed bag-of-words fallback (256 dims)")
-        return fake_embed, 256, "hashed-fallback"
+    except Exception as e:
+        raise RuntimeError(f"embedding provider {name} failed; refusing to change Atlas vector dimensions: {e}") from e
+    return embed, dims(), name
 
 
-def _mongo_store(dims: int | None = None):
+def _mongo_store():
     from .store import MongoStore
     store = MongoStore()
-    if dims is None:
-        _, dims, _ = pick_embedder()
-    store.ensure_indexes(dims)
     return store
 
 
@@ -198,7 +209,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("demo", help="run the pipeline (--live / --fake) or rebuild out/ from Atlas")
     d.add_argument("--live", action="store_true"); d.add_argument("--fake", action="store_true")
-    d.add_argument("--trap", default="primary"); d.add_argument("--heldout", default=None)
+    d.add_argument("--trap", default="primary"); d.add_argument("--heldout", default="heldout")
     d.add_argument("--run-group", default=None); d.add_argument("--out", default=str(OUT_DIR))
     d.add_argument("--session", default=None, help="resume: reuse this recorded session id, skip finished runs")
     r = sub.add_parser("replay", help="one replay against real Pi (spike)")
@@ -227,13 +238,13 @@ def main(argv=None):
     if a.fake:
         _fake_mode()
         store = MemoryStore()
-        rg = a.run_group or f"fake-{uuid.uuid4().hex[:6]}"
-        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", stub_reflector, fake_embed)
+        rg = a.run_group or (store.get_session(a.session)["run_group"] if a.session else f"fake-{uuid.uuid4().hex[:6]}")
+        doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", stub_reflector, fake_embed, session_id=a.session)
     elif a.live:
         from .store import MongoStore
         print(f"agent model: {harness.AGENT_MODEL}; reflector: {pipeline.REFLECTOR_MODEL}; embeddings chosen at reflect time")
         store = MongoStore()
-        rg = a.run_group or f"live-{datetime.now().strftime('%m%d-%H%M')}"
+        rg = a.run_group or (store.get_session(a.session)["run_group"] if a.session else f"live-{datetime.now().strftime('%m%d-%H%M')}")
         doc = run_pipeline(store, a.trap, a.heldout, rg, out / "work", pipeline.propose_lessons_llm, None, session_id=a.session)
     else:
         store = _mongo_store()

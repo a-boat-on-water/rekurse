@@ -18,8 +18,15 @@ def get_db():
         uri = os.environ.get("MONGODB_URI")
         if not uri:
             raise RuntimeError("MONGODB_URI is not set — copy .env.example to .env and fill it in")
+        expected = os.environ.get("ATLAS_SANDBOX_HOST", "").strip().lower()
+        # Validate before constructing MongoClient so even a later ping cannot touch the wrong cluster.
+        if not expected:
+            raise RuntimeError("ATLAS_SANDBOX_HOST is required; set the exact hackathon Atlas host in .env")
+        actual = uri.split("://", 1)[-1].rsplit("@", 1)[-1].split("/", 1)[0].split("?", 1)[0].split(":", 1)[0].lower()
+        if actual != expected:
+            raise RuntimeError(f"MONGODB_URI host {actual!r} does not match ATLAS_SANDBOX_HOST {expected!r}")
         _client = MongoClient(uri, appname="agent-memory-hackathon")
-    return _client[os.environ.get("MONGODB_DB", "hackathon")]
+    return _client[os.environ.get("MONGODB_DB", "rekurse")]
 
 
 def ensure_vector_index(coll, dims: int, path: str = "embedding",

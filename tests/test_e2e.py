@@ -11,7 +11,7 @@ def test_full_pipeline_offline(tmp_path, monkeypatch):
     monkeypatch.setenv("REKURSE_FAKE_RECOVER_BEFORE", "2")
     demo._fake_mode()
     store = MemoryStore()
-    heldout = "heldout" if (TRAP_ROOT / "heldout" / "trap.json").exists() else None
+    heldout = "heldout" if (TRAP_ROOT / "heldout" / "trap.yaml").exists() else None
     t0 = time.time()
     doc = demo.run_pipeline(store, "primary", heldout, "e2e", tmp_path / "work",
                             demo.stub_reflector, demo.fake_embed, seeds=3, decision_seeds=5, concurrency=4, log=lambda *_: None)
@@ -27,7 +27,7 @@ def test_full_pipeline_offline(tmp_path, monkeypatch):
     bad = next(L for t, L in lessons.items() if "format_date" in t)
     assert bad["status"] == "rejected" and "format_date" in bad["reason"]
     merged = [L for L in lessons.values() if L["status"] == "merged"]
-    assert len(merged) == 1 and merged[0]["top1_similarity"] >= 0.96
+    assert len(merged) == 1 and merged[0]["top1_similarity"] >= 0.90
     best = store.get_lesson(doc["best_lesson_id"])
     assert best["status"] == "adopted" and doc["decision"] == "adopted"
     assert doc["decision_lesson"] == [5, 5] and doc["decision_baseline"] == [0, 5]

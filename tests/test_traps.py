@@ -8,7 +8,7 @@ from rekurse.models import load_trap
 
 from rekurse.models import TRAP_ROOT
 
-TRAPS = ["primary"] + (["heldout"] if (TRAP_ROOT / "heldout" / "trap.json").exists() else [])
+TRAPS = ["primary"] + (["heldout"] if (TRAP_ROOT / "heldout" / "trap.yaml").exists() else [])
 
 
 @pytest.mark.parametrize("name", TRAPS)

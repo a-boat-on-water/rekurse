@@ -33,7 +33,7 @@ def rescue_grid(store, doc) -> str:
     ks = [c["k"] for c in cps]
     cells = _rates_by_cell(runs)
     lessons = {L["_id"]: L for L in store.lessons(doc["run_group"])}
-    rows = [("baseline (placebo), sweep", "base:sweep"), ("baseline (placebo), fresh seeds for decision", "base:decision")]
+    rows = [("baseline (no lesson), binary-search probes", "base:sweep"), ("baseline (no lesson), fresh seeds for decision", "base:decision")]
     rows += [(f"lesson {lid}", lid) for lid in doc.get("lesson_rates", {})]
     wt = doc["wrong_turn_k"]
     head = "".join(f'<th class="{"wt" if k == wt else ""}">k={k}{" hint" if c["is_hint"] else ""}</th>' for k, c in zip(ks, cps))
@@ -63,6 +63,29 @@ def headline(doc) -> str:
             f"<b>{doc['decision'].upper()}</b>")
 
 
+def timeline(store, doc) -> str:
+    session = store.get_session(doc["session_id"])
+    cps = store.get_checkpoints(doc["session_id"])
+    cells = []
+    for cp in cps:
+        kind = "hint" if cp["is_hint"] else ("solved" if cp["k"] == session.get("solved_turn") else "turn")
+        label = f"k={cp['k']} · {kind}"
+        cells.append(f'<div class="timeline {kind}"><b>{html.escape(label)}</b><small>{html.escape(cp["user_msg"])}</small></div>')
+    return '<div class="timeline-strip">' + "".join(cells) + "</div>"
+
+
+def heldout_bars(doc) -> str:
+    with_rate, without_rate = doc.get("heldout_with"), doc.get("heldout_without")
+    if not with_rate or not without_rate:
+        return '<p class="na">Held-out comparison not evaluated.</p>'
+    rows = []
+    for label, rate in (("With lesson", with_rate), ("Without lesson", without_rate)):
+        s, n = rate
+        pct = 100 * s / n if n else 0
+        rows.append(f'<div class="bar-row"><span>{label} · {s}/{n}</span><div class="bar"><i style="width:{pct:.1f}%"></i></div></div>')
+    return f'<p>Trap: {html.escape(doc.get("heldout") or "unspecified")}</p>' + "".join(rows)
+
+
 def postmortem(store, doc) -> str:
     session = store.get_session(doc["session_id"])
     cps = store.get_checkpoints(doc["session_id"])
@@ -73,7 +96,7 @@ def postmortem(store, doc) -> str:
     lines = [f"# Post-mortem: {doc['trap']} ({doc['run_group']})", "",
              f"**What happened.** The agent needed {session['total_turns']} turns; a human hint arrived at turn "
              f"{session['hint_turn']} and it solved the task at turn {session['solved_turn']}.", "",
-             f"**Where it went wrong.** Replaying from each checkpoint without help, the agent stopped recovering at "
+             f"**Where it went wrong.** Binary-search replays without help found the recovery boundary at "
              f"checkpoint {wt} (baseline rescue rates by checkpoint: "
              + ", ".join(f"k={k}: {s}/{n}" for k, (s, n) in doc["sweep_rates"].items()) + ")."]
     if cp:
@@ -82,11 +105,12 @@ def postmortem(store, doc) -> str:
     if best:
         ls, ln = doc["decision_lesson"]; bs, bn = doc["decision_baseline"]
         lines += ["", f"**The lesson.** \"{best['text']}\"", "",
-                  f"**Evidence.** At checkpoint {wt}: lesson {ls}/{ln} vs fresh baseline {bs}/{bn} "
-                  f"(p={doc['p_values']['wrong_turn']:.3f})."]
+                  "**Evidence**", "", "| Evaluation | Lesson | Baseline |", "|---|---:|---:|",
+                  f"| Wrong turn, k={wt} | {ls}/{ln} | {bs}/{bn} |"]
         if doc.get("heldout_with"):
             hs, hn = doc["heldout_with"]; ws, wn = doc["heldout_without"]
-            lines += [f"Held-out trap `{doc['heldout']}`: {hs}/{hn} with vs {ws}/{wn} without."]
+            lines += [f"| Held-out `{doc['heldout']}` | {hs}/{hn} | {ws}/{wn} |",
+                      "", f"One-sided Fisher p-value at the wrong turn: {doc['p_values']['wrong_turn']:.3f}."]
     lines += ["", f"**Decision:** {doc['decision']}." + (" " + "; ".join(doc["failed_conditions"]) if doc["failed_conditions"] else "")]
     for L in lessons.values():
         if L["status"] in ("rejected", "merged") and L.get("reason"):
@@ -115,6 +139,7 @@ table.grid{border-collapse:collapse;margin:20px 0}.grid th,.grid td{border:1px s
 .grid th{text-align:left;background:#fafafa}.grid th.wt,.grid td.wt{outline:3px solid #111;outline-offset:-3px}
 .na{color:#999;background:#f3f3f3}.lt{font-weight:normal;font-size:12px;color:#444;max-width:320px}
 ul.lessons li{margin:6px 0}.tag{font-size:12px;padding:2px 6px;border-radius:4px;background:#eee;margin-left:6px}
+.timeline-strip{display:flex;gap:8px;overflow-x:auto;margin:12px 0 24px}.timeline{min-width:150px;padding:10px;border:1px solid #ddd;border-radius:6px;background:#f6f6f6}.timeline small{display:block;margin-top:6px}.timeline.hint{background:#fff1c2}.timeline.solved{background:#d8f2df}.bar-row{display:flex;align-items:center;gap:12px;margin:8px 0}.bar-row span{width:190px}.bar{height:14px;background:#eee;flex:1}.bar i{display:block;height:100%;background:#3978c5}
 """
 
 
@@ -128,8 +153,10 @@ def render_html(store, doc) -> str:
     return f"""<!doctype html><html><head><meta charset="utf-8"><title>Rekurse report</title><style>{CSS}</style></head><body>
 <h1>Rekurse · {html.escape(doc['trap'])} · {html.escape(doc['run_group'])}</h1>
 <div class="head">{headline(doc)}</div>
+<h2>Session timeline</h2>{timeline(store, doc)}
 <h2>Rescue grid (n/N counted runs; gray = untested; outlined = wrong turn)</h2>
 {rescue_grid(store, doc)}
+<h2>Held-out comparison</h2>{heldout_bars(doc)}
 <h2>Lessons</h2><ul class="lessons">{li}</ul>
 <h2>Post-mortem</h2><pre style="white-space:pre-wrap">{html.escape(doc.get('postmortem_md', ''))}</pre>
 </body></html>"""

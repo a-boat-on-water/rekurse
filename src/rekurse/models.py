@@ -1,8 +1,8 @@
 """Dataclasses, config constants and trap loading. Single source of truth for shapes."""
 from __future__ import annotations
 
-import json
 import os
+import json
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,17 +23,18 @@ _HAS_ANTHROPIC = bool(os.environ.get("ANTHROPIC_API_KEY"))
 REFLECTOR_MODEL = os.environ.get("REKURSE_REFLECTOR_MODEL", "claude-sonnet-5" if _HAS_ANTHROPIC else "gpt-4.1")
 SEEDS = int(os.environ.get("REKURSE_SEEDS", "3"))
 DECISION_SEEDS = int(os.environ.get("REKURSE_DECISION_SEEDS", "5"))
-CONCURRENCY = int(os.environ.get("REKURSE_CONCURRENCY", "4"))
-REPLAY_MAX_TURNS = int(os.environ.get("REPLAY_MAX_TURNS", "2"))
+CONCURRENCY = int(os.environ.get("REKURSE_CONCURRENCY", "8"))
+REPLAY_MAX_TURNS = int(os.environ.get("REPLAY_MAX_TURNS", "4"))
+REPLAY_TIMEOUT_S = int(os.environ.get("REPLAY_TIMEOUT_S", "300"))
 TURN_TIMEOUT_S = int(os.environ.get("TURN_TIMEOUT_S", "240"))
 # Tools the agent under test may use. No bash: the agent cannot run the tests or grep, so it must reason from
 # what it reads and only learns whether it worked from the user's next message. Same for baseline and lesson arms.
 PI_TOOLS = os.environ.get("REKURSE_PI_TOOLS", "read,edit,write")
-# voyage-3.5 puts distinct one-sentence rules at cos 0.90-0.93; only near-paraphrases score above 0.96.
-DEDUPE_THRESHOLD = float(os.environ.get("DEDUPE_THRESHOLD", "0.96"))
+# Keep the dedupe boundary aligned with the design spec and embedding calibration.
+DEDUPE_THRESHOLD = float(os.environ.get("DEDUPE_THRESHOLD", "0.90"))
 MONGODB_DB = os.environ.get("MONGODB_DB", "rekurse")
 
-PLACEBO = "Follow the project's existing conventions and keep changes minimal."
+PLACEBO = ""
 
 
 @dataclass
@@ -58,7 +59,8 @@ class Trap:
 
 def load_trap(name: str) -> Trap:
     path = TRAP_ROOT / name
-    data = json.loads((path / "trap.json").read_text())
+    # JSON is a strict subset of YAML, so the checked-in .yaml files stay dependency-free.
+    data = json.loads((path / "trap.yaml").read_text())
     return Trap(path=path, **data)
 
 
@@ -77,6 +79,7 @@ class TurnResult:
 class TestResult:
     passed: bool
     output: str
+    timed_out: bool = False
 
 
 @dataclass
@@ -107,7 +110,7 @@ class ReplaySpec:
 
     @property
     def run_id(self) -> str:
-        return f"{self.run_group}:{self.trap}:{self.checkpoint_k}:{self.lesson_id or 'base'}:{self.seed}:{self.attempt}"
+        return f"{self.run_group}:{self.trap}:{self.session_id or 'fresh'}:{self.checkpoint_k}:{self.lesson_id or 'base'}:{self.seed}:{self.attempt}"
 
 
 @dataclass

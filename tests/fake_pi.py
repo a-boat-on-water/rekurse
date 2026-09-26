@@ -3,7 +3,7 @@
 
 Rules (checked in order):
   1. system prompt append contains the trap's trigger phrase      -> apply solution/
-  2. a replay (non-empty append) with fewer than RECOVER_BEFORE prior user turns -> solution/
+  2. a replay with fewer than RECOVER_BEFORE prior user turns -> solution/
   3. user message contains the trap's hint                          -> solution/
   4. otherwise                                                      -> symptom/
 REKURSE_FAKE_MODE=error emits an API-error turn; =cheat rewrites the tests instead.
@@ -39,7 +39,7 @@ def parse(argv):
 
 
 def detect_trap(ws: Path):
-    for tj in TRAP_ROOT.glob("*/trap.json"):
+    for tj in TRAP_ROOT.glob("*/trap.yaml"):
         trap = json.loads(tj.read_text())
         pristine = tj.parent / "pristine"
         files = [p.relative_to(pristine) for p in pristine.rglob("*") if p.is_file() and "tests" not in p.parts]
@@ -71,7 +71,7 @@ def main():
         overlay, text = None, "I simplified the tests so they pass."
     elif trap["trigger_phrase"].lower() in append.lower():
         overlay, text = "solution", "Traced the value: settings applies defaults after the env var. Fixed the load order."
-    elif append and prior_users < RECOVER_BEFORE:
+    elif "runs" in ws.parts and prior_users < RECOVER_BEFORE:
         overlay, text = "solution", "Looked at where the timezone is loaded and fixed settings."
     elif trap["hint"].lower() in msg.lower():
         overlay, text = "solution", "You're right, settings.py overrides the env var. Fixed."

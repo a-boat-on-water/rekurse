@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from . import harness
-from .models import (AGENT_MODEL, CONCURRENCY, DEDUPE_THRESHOLD, PLACEBO, REFLECTOR_MODEL, REPLAY_MAX_TURNS,
+from .models import (AGENT_MODEL, CONCURRENCY, DEDUPE_THRESHOLD, PLACEBO, REFLECTOR_MODEL, REPLAY_MAX_TURNS, REPLAY_TIMEOUT_S, TURN_TIMEOUT_S,
                      Checkpoint, Decision, ReplaySpec, RunResult, Trap)
 
 _now = lambda: datetime.now(timezone.utc).isoformat()
@@ -84,19 +84,37 @@ def replay_one(spec: ReplaySpec, trap: Trap, store, work_root: Path, session_doc
                             old_cwd=session_doc["repo"], new_cwd=str(ws))
         first_msg = cp["user_msg"]
     system_append = f"Note from past experience: {spec.lesson_text}" if spec.lesson_text else PLACEBO
-    messages = [first_msg] + [f for f in trap.followups if f != trap.hint]
+    if session_doc is None:
+        messages = [first_msg] + [f for f in trap.followups if f != trap.hint]
+    else:
+        # Resume from this checkpoint's actual recorded sequence; replaying from k must not restart at turn 0.
+        messages = [first_msg] + [c["user_msg"] for c in checkpoints
+                                   if c["k"] > spec.checkpoint_k and not c["is_hint"]]
     t0 = time.time()
+    deadline = t0 + REPLAY_TIMEOUT_S
     success, turns, tokens, stop, timed_out, out = False, 0, 0, None, False, ""
     for msg in messages[:REPLAY_MAX_TURNS]:
-        r = harness.run_turn(ws, session_file, sd, msg, system_append=system_append)
+        remaining = int(deadline - time.time())
+        if remaining <= 0:
+            timed_out, stop, out = True, "timeout", "Replay exceeded its wall-clock deadline"
+            break
+        r = harness.run_turn(ws, session_file, sd, msg, system_append=system_append,
+                             timeout_s=min(TURN_TIMEOUT_S, remaining))
         turns += 1
         tokens += r.tokens or 0
         stop, timed_out = r.stop_reason, r.timed_out
         if not r.ok:
             out = r.error or ""
             break
-        res = harness.evaluate(ws, trap)
+        remaining = int(deadline - time.time())
+        if remaining <= 0:
+            timed_out, stop, out = True, "timeout", "Replay exceeded its wall-clock deadline before test evaluation"
+            break
+        res = harness.evaluate(ws, trap, timeout_s=remaining)
         out = res.output
+        if res.timed_out:
+            timed_out, stop = True, "timeout"
+            break
         if res.passed:
             success = True
             break
@@ -152,6 +170,33 @@ def find_wrong_turn(rates: dict[int, tuple[int, int]], max_rate: float = 1 / 3) 
     return None
 
 
+def bisect_wrong_turn(checkpoints: list[int], probe: Callable[[int], tuple[int, int]]) -> tuple[int | None, dict[int, tuple[int, int]]]:
+    """Probe the monotone rescue boundary with binary search, retaining every probed cell."""
+    ks = sorted(checkpoints)
+    rates: dict[int, tuple[int, int]] = {}
+    if not ks:
+        return None, rates
+    def rescued(k):
+        rates[k] = probe(k)
+        s, n = rates[k]
+        if n == 0 or 1 / 3 < s / n < 2 / 3:
+            raise RuntimeError(f"inconclusive baseline probe at checkpoint {k}: {s}/{n}")
+        return s / n >= 2 / 3
+    # Endpoint checks establish the monotone true/false bracket before narrowing the boundary.
+    if not rescued(ks[0]):
+        return ks[0], rates
+    if rescued(ks[-1]):
+        return None, rates
+    lo, hi = 0, len(ks) - 1
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if rescued(ks[mid]):
+            lo = mid
+        else:
+            hi = mid
+    return ks[hi], rates
+
+
 def fisher_p(a_succ: int, a_n: int, b_succ: int, b_n: int) -> float:
     """One-sided Fisher exact p-value that group A's success rate exceeds group B's."""
     total_succ, total = a_succ + b_succ, a_n + b_n
@@ -167,7 +212,7 @@ def fisher_p(a_succ: int, a_n: int, b_succ: int, b_n: int) -> float:
 
 def decide(lesson: tuple[int, int], baseline: tuple[int, int],
            heldout_with: tuple[int, int] | None, heldout_without: tuple[int, int] | None,
-           lesson_min: float = 0.8, baseline_max: float = 0.2) -> Decision:
+           lesson_min: float = 2 / 3, baseline_max: float = 1 / 3) -> Decision:
     d = Decision(adopted=True)
     ls, ln = lesson
     bs, bn = baseline
@@ -176,11 +221,14 @@ def decide(lesson: tuple[int, int], baseline: tuple[int, int],
     if not bn or bs / bn > baseline_max:
         d.failed_conditions.append(f"baseline rescue {bs}/{bn} above {baseline_max:.0%}")
     if heldout_with is None or heldout_without is None:
-        d.notes.append("held-out not evaluated")
+        # Without the independent held-out comparison, the lesson has not met the adoption bar.
+        d.failed_conditions.append("held-out not evaluated")
     else:
         hs, hn = heldout_with
         ws_, wn = heldout_without
-        if hn and wn and hs / hn < ws_ / wn:
+        if hn != 3 or wn != 3:
+            d.failed_conditions.append(f"held-out requires 3 counted runs per arm; got {hn} with and {wn} without")
+        elif hs / hn < ws_ / wn:
             d.failed_conditions.append(f"held-out with lesson {hs}/{hn} below without {ws_}/{wn}")
     d.adopted = not d.failed_conditions
     return d
@@ -335,7 +383,7 @@ def reflect(candidates: list[str], trap: Trap, store, run_group: str, session_id
                                "merged_into": top["_id"], "top1_similarity": round(top_score, 3)})
             log(f"  lesson merged into {top['_id']} (cos {top_score:.3f}): {text}")
             if top.get("status") in ("candidate", "adopted") and top["run_group"] == run_group and top not in survivors:
-                pass
+                survivors.append(top)
             continue
         doc = {**base, "status": "candidate", "reason": None, "top1_similarity": round(top_score, 3) if top_score is not None else None}
         store.save_lesson(doc)

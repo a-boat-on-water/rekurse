@@ -75,11 +75,12 @@ class MongoStore:
         self.db = db or get_db()
         self.host = _uri_host(os.environ.get("MONGODB_URI", ""))
         expected = os.environ.get("ATLAS_SANDBOX_HOST", "").strip().lower()
-        if expected and self.host != expected:
+        # Refuse writes to an unverified cluster; a warning would still let demo results land elsewhere.
+        if not expected:
+            raise RuntimeError("ATLAS_SANDBOX_HOST is required; set the exact hackathon Atlas host in .env")
+        if self.host != expected:
             raise RuntimeError(f"MONGODB_URI points at {self.host!r}, not the hackathon Atlas Sandbox {expected!r} "
                                "(spec §5.1). Fix .env; results on any other cluster are not eligible.")
-        if not expected:
-            print(f"WARNING: ATLAS_SANDBOX_HOST not set; writing to {self.host} without the sandbox guard (spec §5.1)")
         self.db["runs"].create_index([("run_group", 1), ("purpose", 1), ("checkpoint_k", 1)])
         self.db["checkpoints"].create_index([("session_id", 1), ("k", 1)])
 
@@ -93,9 +94,12 @@ class MongoStore:
                 continue
             fields = (ix.get("latestDefinition") or ix.get("definition") or {}).get("fields", [])
             have = next((f.get("numDimensions") for f in fields if f.get("type") == "vector"), None)
-            if have != dims:   # embedding provider changed: rebuild the index and drop incompatible vectors
+            if have != dims:
+                incompatible = coll.count_documents({"$expr": {"$ne": [{"$size": {"$ifNull": ["$embedding", []]}}, dims]}})
+                if incompatible:
+                    # Never silently erase lessons to accommodate an embedding-provider change.
+                    raise RuntimeError(f"Atlas vector index uses {have} dimensions, requested {dims}; {incompatible} stored vectors differ. No data was deleted. Use the original embedding provider or migrate explicitly.")
                 coll.drop_search_index("vector_index")
-                coll.delete_many({"$expr": {"$ne": [{"$size": {"$ifNull": ["$embedding", []]}}, dims]}})
                 import time
                 while any(i["name"] == "vector_index" for i in coll.list_search_indexes()):
                     time.sleep(2)

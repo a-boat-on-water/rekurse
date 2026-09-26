@@ -29,7 +29,7 @@ def test_fisher_p():
 
 @pytest.mark.parametrize("lesson,base,hw,hwo,adopted", [
     ((4, 5), (1, 5), (2, 3), (0, 3), True),
-    ((5, 5), (0, 5), None, None, True),          # held-out not evaluated is a note, not a failure
+    ((5, 5), (0, 5), None, None, False),         # held-out is required for adoption
     ((3, 5), (1, 5), (2, 3), (0, 3), False),     # lesson too weak
     ((5, 5), (2, 5), (2, 3), (0, 3), False),     # baseline too strong
     ((5, 5), (0, 5), (0, 3), (1, 3), False),     # held-out regressed
@@ -39,7 +39,7 @@ def test_decide(lesson, base, hw, hwo, adopted):
     d = decide(lesson, base, hw, hwo)
     assert d.adopted is adopted
     if hw is None:
-        assert "held-out not evaluated" in d.notes
+        assert "held-out not evaluated" in d.failed_conditions
 
 
 def test_generality_check():

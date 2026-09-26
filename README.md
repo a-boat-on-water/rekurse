@@ -34,7 +34,7 @@ Outputs: `out/report.html` (rescue grid), `out/postmortem.md`, `out/AGENTS.md` (
 
 Honesty rules baked into the numbers: the decision uses **fresh** baseline runs at the wrong turn (not the sweep
 runs that defined it), n=5 per decision cell, timed-out runs are excluded rather than counted as failures, the
-baseline gets a placebo prompt of similar length, and every probed cell is shown in the grid.
+baseline receives no lesson or hint, and every probed cell is shown in the grid.
 
 
 ## Setup (5 min)
@@ -70,6 +70,6 @@ src/rekurse/
   report.py     report.html, postmortem.md, AGENTS.md block
   demo.py       CLI + orchestrator
   db.py, embeddings.py, smoke_test.py
-trap_repos/{primary,heldout}/{trap.json,pristine/,solution/,symptom/}
+trap_repos/{primary,heldout}/{trap.yaml,pristine/,solution/,symptom/}
 tests/          fake_pi.py + test_*.py + fixtures/
 ```
