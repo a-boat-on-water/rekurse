@@ -44,7 +44,8 @@ def stub_reflector(transcript: str, diff: str) -> list[str]:
 
 def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str, work_root: Path,
                  reflector, embed, seeds: int = SEEDS, decision_seeds: int = DECISION_SEEDS,
-                 concurrency: int = CONCURRENCY, log=print, session_id: str | None = None) -> dict:
+                 concurrency: int = CONCURRENCY, log=print, session_id: str | None = None,
+                 wrong_turn: int | None = None) -> dict:
     trap = load_trap(trap_name)
     work_root.mkdir(parents=True, exist_ok=True)
 
@@ -78,6 +79,9 @@ def run_pipeline(store, trap_name: str, heldout_name: str | None, run_group: str
     if wt is None:
         wt = pre_hint[-1]
         notes.append("baseline recovered from every probed checkpoint; testing lessons at the last pre-hint turn")
+    if wrong_turn is not None and wrong_turn != wt:
+        notes.append(f"wrong turn overridden to {wrong_turn} (bisect said {wt}; fresh decision seeds contradicted the probe)")
+        wt = wrong_turn
     log(f"  probed rates {rates}; wrong turn = {wt}")
 
     log("== reflect")
@@ -217,6 +221,7 @@ def main(argv=None):
     d.add_argument("--trap", default="primary"); d.add_argument("--heldout", default=None)
     d.add_argument("--run-group", default=None); d.add_argument("--out", default=str(OUT_DIR))
     d.add_argument("--session", default=None, help="resume: reuse this recorded session id, skip finished runs")
+    d.add_argument("--wrong-turn", type=int, default=None, help="test lessons at this checkpoint instead of the bisect result")
     r = sub.add_parser("replay", help="one replay against real Pi (spike)")
     r.add_argument("--trap", default="primary"); r.add_argument("--k", type=int, default=0)
     r.add_argument("--lesson", default="none"); r.add_argument("--seed", type=int, default=1)
@@ -250,7 +255,7 @@ def main(argv=None):
         print(f"agent model: {harness.AGENT_MODEL}; reflector: {pipeline.REFLECTOR_MODEL}; embeddings chosen at reflect time")
         store = MongoStore()
         rg = a.run_group or f"live-{datetime.now().strftime('%m%d-%H%M')}"
-        doc = run_pipeline(store, a.trap, a.heldout, rg, WORK_ROOT, pipeline.propose_lessons_llm, None, session_id=a.session)
+        doc = run_pipeline(store, a.trap, a.heldout, rg, WORK_ROOT, pipeline.propose_lessons_llm, None, session_id=a.session, wrong_turn=a.wrong_turn)
     else:
         store = _mongo_store()
         doc = store.get_report(a.run_group) if a.run_group else store.latest_report()
