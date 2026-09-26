@@ -11,7 +11,7 @@ import time
 import uuid
 from pathlib import Path
 
-from .models import AGENT_MODEL, PI_BIN, TURN_TIMEOUT_S, TestResult, Trap, TurnResult
+from .models import AGENT_MODEL, PI_BIN, PI_TOOLS, TURN_TIMEOUT_S, TestResult, Trap, TurnResult
 
 # ---------------------------------------------------------------- workspace
 
@@ -127,7 +127,8 @@ def fork_before(session_file: Path, k: int, dst: Path, old_cwd: str, new_cwd: st
 
 def pi_command(session_file: Path, session_dir: Path, message: str, model: str, system_append: str) -> list[str]:
     cmd = [*PI_BIN, "-p", "--mode", "json", "--session", str(session_file), "--session-dir", str(session_dir),
-           "--model", model, "--thinking", "off", "--approve", "--no-extensions", "--no-skills", "--no-context-files"]
+           "--model", model, "--thinking", "off", "--tools", PI_TOOLS,
+           "--approve", "--no-extensions", "--no-skills", "--no-context-files"]
     # Pi prefers its own OAuth login over env vars; pass the API key explicitly so the run bills the key.
     key = {"anthropic": os.environ.get("ANTHROPIC_API_KEY"), "openai": os.environ.get("OPENAI_API_KEY")}.get(model.split("/")[0])
     if key:
