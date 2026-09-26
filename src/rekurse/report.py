@@ -14,9 +14,15 @@ def _cell(s, n):
 
 
 def _rates_by_cell(runs):
-    cells: dict[tuple[str | None, int], list] = {}
+    """Key: (row_key, k). Sweep baseline and fresh decision baseline are separate rows so the
+    wrong-turn definition and the decision never share runs."""
+    cells: dict[tuple[str, int], list] = {}
     for r in runs:
-        cells.setdefault((r["lesson_id"], r["checkpoint_k"]), []).append(r)
+        if r["lesson_id"]:
+            key = r["lesson_id"]
+        else:
+            key = "base:decision" if r["purpose"] == "decision" else "base:sweep"
+        cells.setdefault((key, r["checkpoint_k"]), []).append(r)
     return cells
 
 
@@ -27,7 +33,8 @@ def rescue_grid(store, doc) -> str:
     ks = [c["k"] for c in cps]
     cells = _rates_by_cell(runs)
     lessons = {L["_id"]: L for L in store.lessons(doc["run_group"])}
-    rows = [("baseline (placebo)", None)] + [(f"lesson {lid}", lid) for lid in doc.get("lesson_rates", {})]
+    rows = [("baseline (placebo), sweep", "base:sweep"), ("baseline (placebo), fresh seeds for decision", "base:decision")]
+    rows += [(f"lesson {lid}", lid) for lid in doc.get("lesson_rates", {})]
     wt = doc["wrong_turn_k"]
     head = "".join(f'<th class="{"wt" if k == wt else ""}">k={k}{" hint" if c["is_hint"] else ""}</th>' for k, c in zip(ks, cps))
     body = []
@@ -36,8 +43,9 @@ def rescue_grid(store, doc) -> str:
         for k in ks:
             s, n = rescue_rate(cells.get((lid, k), []))
             tds.append(_cell(s, n).replace("<td", '<td class="wt"', 1) if k == wt else _cell(s, n))
-        text = html.escape(lessons[lid]["text"]) if lid else ""
-        status = lessons[lid]["status"] if lid else ""
+        is_lesson = lid in lessons
+        text = html.escape(lessons[lid]["text"]) if is_lesson else ""
+        status = lessons[lid]["status"] if is_lesson else ""
         body.append(f"<tr><th>{label}<br><small>{status}</small><div class='lt'>{text}</div></th>{''.join(tds)}</tr>")
     return f'<table class="grid"><tr><th></th>{head}</tr>{"".join(body)}</table>'
 
